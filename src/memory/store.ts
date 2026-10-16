@@ -11,7 +11,7 @@ const MEMORY_REL = path.join('.vs-agent', 'memory.md');
 
 export const MEMORY_TEMPLATE = `# 项目记忆
 
-> 由 VS Agent 结对伙伴维护，人类可直接编辑，AI 下次对话会看到。
+> 由 QuietPair 结对伙伴维护，人类可直接编辑，AI 下次对话会看到。
 > 条目保持一句话、可独立理解。
 
 ## 项目概况

@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
     const file = vscode.workspace.asRelativePath(uri);
     sharedContext.markViewed(file, first.line); // L3 自动展开 = 用户正在看这条
     void vscode.window.showWarningMessage(
-      `VS Agent: ${file}${first.line ? `:${first.line}` : ''} — ${first.title}${l3.length > 1 ? ` (${l3.length} critical issues)` : ''}`
+      `QuietPair: ${file}${first.line ? `:${first.line}` : ''} — ${first.title}${l3.length > 1 ? ` (${l3.length} critical issues)` : ''}`
     );
     chatProvider.showSuggestionDetail(
       `${levelIcon(3)} ${file}${first.line ? `:${first.line}` : ''} — ${first.title}`,
@@ -149,7 +149,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('vs-agent.setApiKey', async () => {
       const key = await promptForApiKey(context);
       if (key) {
-        vscode.window.showInformationMessage('VS Agent API key saved.');
+        vscode.window.showInformationMessage('QuietPair API key saved.');
       }
     }),
     vscode.commands.registerCommand('vs-agent.clearChat', () => chatProvider.clear()),
@@ -165,7 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
           { label: '$(output) Open live log (Output panel)', action: 'output' },
           { label: '$(folder-opened) Reveal log directory', action: 'folder' },
         ],
-        { title: 'VS Agent Logs' }
+        { title: 'QuietPair Logs' }
       );
       if (choice?.action === 'transcript') {
         await logger.showTranscript();

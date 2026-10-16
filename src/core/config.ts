@@ -58,7 +58,7 @@ export async function getApiKey(context: vscode.ExtensionContext): Promise<strin
 /** 弹输入框让用户设置 API key，存进 SecretStorage 后返回 */
 export async function promptForApiKey(context: vscode.ExtensionContext): Promise<string | undefined> {
   const key = await vscode.window.showInputBox({
-    title: 'VS Agent: Set API Key',
+    title: 'QuietPair: Set API Key',
     prompt: 'Enter an API key for your OpenAI-compatible provider. It is stored in VS Code SecretStorage, never in settings files.',
     // 输入内容显示为圆点，防止旁人窥屏看到 key
     password: true,

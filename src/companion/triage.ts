@@ -69,7 +69,7 @@ export class SaveTriage implements vscode.Disposable {
     const stats = this.activity?.fileStats(rel);
     const diagnostics = vscode.languages
       .getDiagnostics(doc.uri)
-      .filter((d) => d.severity <= vscode.DiagnosticSeverity.Warning && d.source !== 'VS Agent')
+      .filter((d) => d.severity <= vscode.DiagnosticSeverity.Warning && d.source !== 'QuietPair')
       .slice(0, 5)
       .map((d) => `- line ${d.range.start.line + 1} [${vscode.DiagnosticSeverity[d.severity]}]: ${d.message}`)
       .join('\n');

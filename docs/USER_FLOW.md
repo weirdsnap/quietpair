@@ -1,6 +1,6 @@
 # 用户流（User Flows）
 
-> 本文档描述 VS Agent **当前版本**的用户交互流，用 mermaid 表达。
+> 本文档描述 QuietPair **当前版本**的用户交互流，用 mermaid 表达。
 > **维护约定**：每次改动交互行为后，必须同步更新本文档 + README.md + docs/ARCHITECTURE.md。
 
 角色定义：

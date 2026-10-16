@@ -1,4 +1,4 @@
-# VS Agent
+# QuietPair
 
 一个 AI 结对编程伙伴 VS Code 插件（TypeScript）
 因为助手类型的AI agent已经很多了，xx code 或者龙虾那些全能的智能助手。
@@ -95,7 +95,7 @@ vs_agent/
   - 编辑文件时标注降级为「待确认」（变暗保留），由新分析或「✓ 改好了」复审刷新，而不是直接清除
   - 聊天 Agent 运行期间暂停分析，避免并发请求
   - 新一轮分析会 abort 掉上一次未完成的请求
-  - 可在面板底部点 Watch 随时开关；点顶栏 Analyze 立刻手动分析当前文件（跳过防抖/冷却/哈希去重，方便测试），或命令 `VS Agent: Analyze Current File Now`
+  - 可在面板底部点 Watch 随时开关；点顶栏 Analyze 立刻手动分析当前文件（跳过防抖/冷却/哈希去重，方便测试），或命令 `QuietPair: Analyze Current File Now`
 - **配置项**：
   - `vsAgent.companion.enabled`（默认 `true`）
   - `vsAgent.companion.debounceSeconds`（普通打字防抖，默认 `10`，最小 `3`）
@@ -130,14 +130,14 @@ vs_agent/
 
 - **单会话**：一个项目一条持续线程，历史存 `workspaceState`（按工作区隔离），重开 VS Code 接着聊；点Clear才重新开始
 - **项目持久记忆**：`.vs-agent/memory.md` 存于工作区内（人类可读可改、可提交 git）。固定分区：项目概况 / 偏好与约定 / 重要决策（带日期）/ 进行中 / 禁区（用户拒绝过的建议，别再提）。内容注入聊天 Agent 和守望分析的 prompt；Agent 通过 `update_memory` 工具主动维护（整文件覆写，无需审批）
-- **初始化记忆（init）**：面板顶栏点 Init 或命令 `VS Agent: Init Project Memory`，先选模式——"Guide me through it"：AI 交付阅读地图（入口/依赖方向/推荐阅读顺序），逐站陪同并用提问验证你的理解，你确认过的理解写入记忆（带 ✅ 前缀）；"Summarize for me"：Agent 自己探索整个项目，把项目概况、技术栈、目录结构、构建方式写进记忆文件。探索过程在面板里可见、可打断，完成后守望模式的建议就有了项目全局视野
+- **初始化记忆（init）**：面板顶栏点 Init 或命令 `QuietPair: Init Project Memory`，先选模式——"Guide me through it"：AI 交付阅读地图（入口/依赖方向/推荐阅读顺序），逐站陪同并用提问验证你的理解，你确认过的理解写入记忆（带 ✅ 前缀）；"Summarize for me"：Agent 自己探索整个项目，把项目概况、技术栈、目录结构、构建方式写进记忆文件。探索过程在面板里可见、可打断，完成后守望模式的建议就有了项目全局视野
 - **压缩机制**：对话历史超过约 6 万字符时，自动把旧轮次蒸馏成 300 字内的摘要（保留近期 12 条原文），面板提示「🗜 对话已压缩」；同一次蒸馏顺带做**记忆沉淀**——值得长期记住的约定/决策/偏好按分区增量合并进 `.vs-agent/memory.md`（只追加不覆写，保住人类手动编辑）；完整记录仍可从日志 transcript 复盘。整理挂靠在「一章结束」的自然节点，不依赖 VS Code 关闭钩子（`deactivate` 不保证被调用、也没有时间发 LLM 请求，所有状态都是每步落盘的 crash-safe 设计）
 
 ## 调试与复盘（日志）
 
 对齐业界做法（Claude Code 的 JSONL transcript、Cline 的任务历史），双通道记录一切行为：
 
-- **实时日志**：VS Code Output 面板选「VS Agent」频道，带级别的流式日志
+- **实时日志**：VS Code Output 面板选「QuietPair」频道，带级别的流式日志
 - **会话 transcript**：每次会话写一份 JSONL（`globalStorage/logs/session-*.jsonl`），按时间顺序记录完整事件流——比界面上看到的多得多
 
 记录的事件类型：
@@ -152,7 +152,7 @@ vs_agent/
 | `interrupt` | 打断时刻正在做什么、说到了哪 |
 | `error` | API 错误等异常 |
 
-查看入口：面板顶栏 **Logs** 或命令 `VS Agent: Open Logs`，可打开本次会话 transcript / 实时 Output 面板 / 日志目录。
+查看入口：面板顶栏 **Logs** 或命令 `QuietPair: Open Logs`，可打开本次会话 transcript / 实时 Output 面板 / 日志目录。
 
 **Token 用量统计**：请求时带 `stream_options.include_usage`，每次调用（聊天/守望/压缩，含守望自主取证的每一轮）的输入/输出 token 都累计——面板工具栏右侧的 `⇅ 12.3k` 小计数显示本次会话总量，悬停看分来源明细和历史累计（存 globalState 跨会话）；每次调用同时记一条 `usage` 事件进 transcript。注意：不返回 usage 的网关不计入统计。
 
@@ -160,7 +160,7 @@ vs_agent/
 
 1. 用 VS Code 打开本文件夹：`code /Users/herta/learning/vs_agent`
 2. 按 **F5** 启动「扩展开发宿主」窗口
-3. 在新窗口左侧活动栏点 VS Agent 图标，打开 Chat 面板
+3. 在新窗口左侧活动栏点 QuietPair 图标，打开 Chat 面板
 4. 点Settings配 baseUrl 和 model，点「Key」填入 API key
 5. 点Init让 AI 先探索一遍项目、建立初始记忆（可选但推荐，守望建议会因此更懂项目）
 6. 随便打开一个代码文件编辑几行，停笔约 10 秒，守望模式会自动分析并推送建议；也可以直接在输入框提问

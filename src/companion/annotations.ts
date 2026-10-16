@@ -128,7 +128,7 @@ export class AnnotationManager implements vscode.Disposable {
         `[${LEVEL_LABEL[s.level]}] ${s.title} — ${s.detail}`,
         s.level === 3 ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
       );
-      diag.source = 'VS Agent';
+      diag.source = 'QuietPair';
       diagnostics.push(diag);
     });
     if (diagnostics.length > 0) {

@@ -19,10 +19,10 @@ export type LogKind =
   | 'error';
 
 // 双通道日志：
-// 1. VS Code Output 面板「VS Agent」——实时查看
+// 1. VS Code Output 面板「QuietPair」——实时查看
 // 2. JSONL transcript 落盘（globalStorage/logs/session-*.jsonl）——复盘整次会话
 export class Logger implements vscode.Disposable {
-  private channel = vscode.window.createOutputChannel('VS Agent', { log: true });
+  private channel = vscode.window.createOutputChannel('QuietPair', { log: true });
   private stream: fs.WriteStream;
   readonly filePath: string;
 

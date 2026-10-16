@@ -1,7 +1,7 @@
 {
-  "name": "vs-agent",
-  "displayName": "VS Agent",
-  "description": "A VS Code extension template",
+  "name": "quietpair",
+  "displayName": "QuietPair",
+  "description": "A pair-programming companion that watches, suggests, and lets you lead",
   "version": "0.0.1",
   "publisher": "herta",
   "engines": {
@@ -17,31 +17,31 @@
       {
         "command": "vs-agent.setApiKey",
         "title": "Set API Key",
-        "category": "VS Agent"
+        "category": "QuietPair"
       },
       {
         "command": "vs-agent.clearChat",
         "title": "Clear Chat History",
-        "category": "VS Agent"
+        "category": "QuietPair"
       },
       {
         "command": "vs-agent.initProject",
         "title": "Init Project Memory",
-        "category": "VS Agent"
+        "category": "QuietPair"
       },
       {
         "command": "vs-agent.analyzeNow",
         "title": "Analyze Current File Now",
-        "category": "VS Agent"
+        "category": "QuietPair"
       },
       {
         "command": "vs-agent.openSettings",
         "title": "Open Settings",
-        "category": "VS Agent"
+        "category": "QuietPair"
       }
     ],
     "configuration": {
-      "title": "VS Agent",
+      "title": "QuietPair",
       "properties": {
         "vsAgent.baseUrl": {
           "type": "string",
@@ -56,7 +56,7 @@
         "vsAgent.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "API key in plaintext. NOT recommended: settings are stored in plain text and synced by Settings Sync. Prefer [VS Agent: Set API Key](command:vs-agent.setApiKey), which stores the key in encrypted SecretStorage. If both are set, SecretStorage wins."
+          "markdownDescription": "API key in plaintext. NOT recommended: settings are stored in plain text and synced by Settings Sync. Prefer [QuietPair: Set API Key](command:vs-agent.setApiKey), which stores the key in encrypted SecretStorage. If both are set, SecretStorage wins."
         },
         "vsAgent.permissionMode": {
           "type": "string",
@@ -124,7 +124,7 @@
       "activitybar": [
         {
           "id": "vs-agent",
-          "title": "VS Agent",
+          "title": "QuietPair",
           "icon": "media/icon.svg"
         }
       ]

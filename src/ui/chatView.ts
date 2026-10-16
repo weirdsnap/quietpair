@@ -504,7 +504,7 @@ ${serialized}`,
     if (!apiKey) {
       apiKey = await promptForApiKey(this.context);
       if (!apiKey) {
-        this.post({ type: 'error', message: 'No API key set. Use the key button above or the "VS Agent: Set API Key" command.' });
+        this.post({ type: 'error', message: 'No API key set. Use the key button above or the "QuietPair: Set API Key" command.' });
         return;
       }
     }
@@ -601,11 +601,11 @@ ${serialized}`,
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${styleUri}" rel="stylesheet">
-  <title>VS Agent</title>
+  <title>QuietPair</title>
 </head>
 <body>
   <div id="topbar">
-    <span id="brand">🐾 VS Agent</span>
+    <span id="brand">🐾 QuietPair</span>
     <span id="usage-stats" title="Token usage"></span>
     <button id="init-btn" title="Initialize project memory: let the AI explore the project and write it into .vs-agent/memory.md">Init</button>
     <button id="analyze-btn" title="Analyze the current file now (skips debounce/cooldown/dedup, for testing)">Analyze</button>
