@@ -1,0 +1,154 @@
+{
+  "name": "vs-agent",
+  "displayName": "VS Agent",
+  "description": "A VS Code extension template",
+  "version": "0.0.1",
+  "publisher": "herta",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vs-agent.setApiKey",
+        "title": "Set API Key",
+        "category": "VS Agent"
+      },
+      {
+        "command": "vs-agent.clearChat",
+        "title": "Clear Chat History",
+        "category": "VS Agent"
+      },
+      {
+        "command": "vs-agent.initProject",
+        "title": "Init Project Memory",
+        "category": "VS Agent"
+      },
+      {
+        "command": "vs-agent.analyzeNow",
+        "title": "Analyze Current File Now",
+        "category": "VS Agent"
+      },
+      {
+        "command": "vs-agent.openSettings",
+        "title": "Open Settings",
+        "category": "VS Agent"
+      }
+    ],
+    "configuration": {
+      "title": "VS Agent",
+      "properties": {
+        "vsAgent.baseUrl": {
+          "type": "string",
+          "default": "https://api.deepseek.com/v1",
+          "description": "OpenAI-compatible API base URL (e.g. https://api.deepseek.com/v1, https://api.openai.com/v1)"
+        },
+        "vsAgent.model": {
+          "type": "string",
+          "default": "deepseek-chat",
+          "description": "Model name to use for chat completions (e.g. deepseek-chat, deepseek-reasoner)"
+        },
+        "vsAgent.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API key in plaintext. NOT recommended: settings are stored in plain text and synced by Settings Sync. Prefer [VS Agent: Set API Key](command:vs-agent.setApiKey), which stores the key in encrypted SecretStorage. If both are set, SecretStorage wins."
+        },
+        "vsAgent.permissionMode": {
+          "type": "string",
+          "enum": [
+            "discuss",
+            "ask",
+            "yolo"
+          ],
+          "enumDescriptions": [
+            "Discuss only: the agent reads and analyzes but write_file / run_command / update_memory are refused outright (no prompts)",
+            "Ask first: every write operation pops an Approve/Reject dialog in the chat panel",
+            "Pre-authorize: write operations are auto-approved (each one is logged to the transcript; use only in trusted workspaces)"
+          ],
+          "default": "ask",
+          "description": "Permission level for agent write operations. The partner defaults to advising; acting is the exception and requires your say-so."
+        },
+        "vsAgent.companion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the companion mode: automatically analyze the code you are editing and push suggestions"
+        },
+        "vsAgent.autoRunReadonlyCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run allowlisted read-only shell commands without asking for approval (ls, cat, grep, git log/status/diff, etc.; pipelines and && chains allowed when every segment is allowlisted; no redirects/substitutions; paths must stay inside the workspace). Everything else still prompts."
+        },
+        "vsAgent.companion.debounceSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 3,
+          "description": "Seconds of idle time after ordinary typing before the companion analyzes the current file"
+        },
+        "vsAgent.companion.quickTriggerSeconds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "Seconds of idle time before analysis after semantic trigger edits (statement end, paste, deletion, blank line)"
+        },
+        "vsAgent.companion.cooldownSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 10,
+          "description": "Minimum seconds between two LLM analyses. Triggers during cooldown are deferred, not dropped"
+        },
+        "vsAgent.companion.saveTriage": {
+          "type": "boolean",
+          "default": true,
+          "description": "On file save, run a lightweight triage call to decide whether to wake the deep analysis (layer-2 observer)"
+        },
+        "vsAgent.triageModel": {
+          "type": "string",
+          "default": "",
+          "description": "Optional cheaper model for save-time triage (e.g. a flash/lite model). Empty = use vsAgent.model"
+        },
+        "vsAgent.responseLanguage": {
+          "type": "string",
+          "enum": ["zh", "en"],
+          "enumDescriptions": ["中文（默认）", "English"],
+          "default": "zh",
+          "description": "Language of the model's user-facing output (chat replies, suggestion titles and details). The panel UI itself is English."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vs-agent",
+          "title": "VS Agent",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "vs-agent": [
+        {
+          "id": "vs-agent.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.1"
+  }
+}

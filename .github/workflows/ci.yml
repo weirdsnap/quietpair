@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # 类型检查 + 编译产物（扩展的 main 指向 out/，编译不过等于坏版本）
+      - run: npm run compile
+
+      # 单元测试（vitest，vscode 由 tests/vscode-stub.ts 桩替代）
+      - run: npm test
