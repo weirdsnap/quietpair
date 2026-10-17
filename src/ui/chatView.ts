@@ -8,9 +8,9 @@
 import * as vscode from 'vscode';
 import { ChatMessage, chatCompletion } from '../core/llm';
 import { runAgent, SYSTEM_PROMPT } from '../agent/agent';
-import { GUIDE_PROMPT, INIT_PROMPT } from '../agent/prompts';
+import { GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE } from '../agent/prompts';
 import type { ToolContext } from '../agent/tools';
-import { getConfig, getApiKey, promptForApiKey, API_KEY_SECRET, languageDirective } from '../core/config';
+import { getConfig, getApiKey, promptForApiKey, API_KEY_SECRET, languageDirective, learningMode } from '../core/config';
 import { SharedContext } from '../memory/sharedContext';
 import { Logger } from '../core/logger';
 import { UsageTracker } from '../core/usage';
@@ -176,6 +176,9 @@ ${summary}`;
       prompt += `\n\n## 当前权限：写操作已预授权\n写文件、跑命令不再逐次弹窗，但原则不变：用户明确要求时才动手。`;
     }
     prompt += languageDirective();
+    if (learningMode()) {
+      prompt += `\n\n${LEARNING_POSTURE}`;
+    }
     return prompt;
   }
 
@@ -321,6 +324,7 @@ ${serialized}`,
         quickTriggerSeconds: cfg.get<number>('companion.quickTriggerSeconds', 3),
         cooldownSeconds: cfg.get<number>('companion.cooldownSeconds', 300),
         responseLanguage: cfg.get<string>('responseLanguage', 'zh'),
+        learningMode: cfg.get<boolean>('learningMode', false),
       },
     });
   }
@@ -339,6 +343,7 @@ ${serialized}`,
     await cfg.update('companion.cooldownSeconds', Math.max(10, Number(s.cooldownSeconds) || 300), vscode.ConfigurationTarget.Global);
     const lang = String(s.responseLanguage) === 'en' ? 'en' : 'zh';
     await cfg.update('responseLanguage', lang, vscode.ConfigurationTarget.Global);
+    await cfg.update('learningMode', !!s.learningMode, vscode.ConfigurationTarget.Global);
     const key = String(s.apiKey ?? '').trim();
     if (key) {
       await this.context.secrets.store(API_KEY_SECRET, key);
@@ -654,6 +659,10 @@ ${serialized}`,
         <option value="zh">中文</option>
         <option value="en">English</option>
       </select>
+    </label>
+    <label class="field row">
+      <input id="set-learning" type="checkbox">
+      <span>Learning mode (chat guides you with questions instead of giving answers; you can always override by asking directly)</span>
     </label>
     <label class="field">
       <span>Typing debounce (seconds)</span>

@@ -117,6 +117,11 @@
           "enumDescriptions": ["中文（默认）", "English"],
           "default": "zh",
           "description": "Language of the model's user-facing output (chat replies, suggestion titles and details). The panel UI itself is English."
+        },
+        "vsAgent.learningMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Learning mode: the chat agent guides you with questions instead of handing over answers (brief explanations allowed for conceptual confusion; it still defers when you ask directly or stay stuck)"
         }
       }
     },

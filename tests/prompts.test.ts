@@ -3,7 +3,7 @@
  * 这些断言锁住核心定位，防止改文案时意外丢失关键约束。
  */
 import { describe, it, expect } from 'vitest';
-import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT } from '../src/agent/prompts';
+import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE } from '../src/agent/prompts';
 
 describe('SYSTEM_PROMPT：伙伴人设的核心约束', () => {
   it('定位是结对伙伴而非执行工具', () => {
@@ -79,5 +79,26 @@ describe('INIT_PROMPT：代读式 init 的核心约束', () => {
     expect(INIT_PROMPT).toContain('list_files');
     expect(INIT_PROMPT).toContain('update_memory');
     expect(INIT_PROMPT).toContain('项目概况');
+  });
+});
+
+describe('LEARNING_POSTURE：学习姿态的核心约束', () => {
+  it('不直接给答案，用提问引导', () => {
+    expect(LEARNING_POSTURE).toContain('不直接给完整修复代码或最终答案');
+    expect(LEARNING_POSTURE).toContain('用提问引导');
+  });
+
+  it('制衡条款：不无谓扣住信息（卡住或明确要求时让步）', () => {
+    expect(LEARNING_POSTURE).toContain('不无谓扣住信息');
+    expect(LEARNING_POSTURE).toContain('尊重并照做');
+  });
+
+  it('答错暗示、答对确认', () => {
+    expect(LEARNING_POSTURE).toContain('暗示错误的位置');
+    expect(LEARNING_POSTURE).toContain('明确确认');
+  });
+
+  it('一次一个引导问题', () => {
+    expect(LEARNING_POSTURE).toContain('一次只推进一个引导问题');
   });
 });

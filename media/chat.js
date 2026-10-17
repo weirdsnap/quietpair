@@ -419,6 +419,7 @@
   const setCooldown = document.getElementById('set-cooldown');
   const setPermission = document.getElementById('set-permission');
   const setLanguage = document.getElementById('set-language');
+  const setLearning = document.getElementById('set-learning');
   const settingsStatus = document.getElementById('settings-status');
 
   let settingsOpen = false;
@@ -459,6 +460,7 @@
     setCooldown.value = s.cooldownSeconds || 300;
     setPermission.value = s.permissionMode || 'ask';
     setLanguage.value = s.responseLanguage || 'zh';
+    setLearning.checked = !!s.learningMode;
     setProvider.value = detectProvider(s.baseUrl);
   }
 
@@ -475,6 +477,7 @@
         cooldownSeconds: Number(setCooldown.value),
         permissionMode: setPermission.value,
         responseLanguage: setLanguage.value,
+        learningMode: setLearning.checked,
       },
     });
   });

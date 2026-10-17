@@ -13,6 +13,7 @@ src/
 ├── core/                   基础设施（无业务逻辑）
 │   ├── config.ts           设置项读取（vsAgent.*）+ API key（SecretStorage 优先）+ 输出语言指令
 │   │                       （vsAgent.responseLanguage，注入聊天与守望的 system prompt）
+│   │                       + 学习模式开关（vsAgent.learningMode）
 │   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、tool_calls 累积、AbortSignal、usage 回收
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
 │   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘
@@ -21,7 +22,8 @@ src/
 │   ├── agent.ts            runAgent 工具循环；循环只认通用事件（token/工具/完成/打断），
 │   │                       业务能力经 ToolContext 传入；连续纯读工具并发执行（groupToolCalls 分组）
 │   ├── prompts.ts          所有面向模型的 prompt：SYSTEM_PROMPT（伙伴人设）+ COMPANION_PROMPT（守望分析）
-│   │                       + INIT/GUIDE_PROMPT（init 两个剧本：帮我总结 / 带我读一遍）——调文案只改这里
+│   │                       + INIT/GUIDE_PROMPT（init 两个剧本：帮我总结 / 带我读一遍）
+│   │                       + LEARNING_POSTURE（学习姿态，learningMode 开启时追加到聊天 system prompt）——调文案只改这里
 │   └── tools.ts            工具注册表：一条记录 = schema + execute + 权限标记（readonly / parallelSafe），
 │                           toolDefinitions / 只读子集 / executeTool / groupToolCalls 全部从注册表派生；
 │                           write_file / run_command 需审批（白名单只读命令除外），路径限制在工作区内；

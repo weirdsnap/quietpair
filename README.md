@@ -109,7 +109,8 @@ vs_agent/
 - **人格设定**：结对编程伙伴，不是听命干活的工具——先讨论方案再动手，有自己的判断并会直接表达，但用户做了决定就尊重；用户明确要求「你去改/你去跑」时才执行写文件、跑命令这类操作，拿不准会问一句
 
 - **对话界面**：活动栏图标 → Chat 面板，流式输出
-- **接口配置（Webview 内设置页，对齐 Cline/Kilo 的形态）**：面板底部 Settings 打开内置设置视图——Provider 预设下拉（OpenAI / DeepSeek / Kimi / 自定义）、Base URL、Model、API Key 密码框、回答语言（中文/English，对应 `vsAgent.responseLanguage`）、守望模式开关与防抖参数。Key 保存时直写 SecretStorage（系统级加密），不落任何配置文件；清空后保存即删除。VS Code 原生设置页（`vsAgent.*`）作为后备仍然可用，其中 `vsAgent.apiKey` 明文项不推荐（会被 Settings Sync 同步）
+- **接口配置（Webview 内设置页，对齐 Cline/Kilo 的形态）**：面板底部 Settings 打开内置设置视图——Provider 预设下拉（OpenAI / DeepSeek / Kimi / 自定义）、Base URL、Model、API Key 密码框、回答语言（中文/English，对应 `vsAgent.responseLanguage`）、学习模式开关（`vsAgent.learningMode`）、守望模式开关与防抖参数。Key 保存时直写 SecretStorage（系统级加密），不落任何配置文件；清空后保存即删除。VS Code 原生设置页（`vsAgent.*`）作为后备仍然可用，其中 `vsAgent.apiKey` 明文项不推荐（会被 Settings Sync 同步）
+- **学习模式（可选，默认关）**：开启后聊天 Agent 叠加引导式教学姿态（`LEARNING_POSTURE`）——不直接给完整答案/修复代码，用提问引导你自己定位；概念困惑允许简短解释但解释后回扣引导问题；答错暗示方向、答对确认推进；一次只问一个问题。**制衡条款**：连续卡住或明确说「直接告诉我」时逐级加深直至给出答案，直接要求给答案/改代码时尊重照做——学习姿态是默认姿态而非封锁（设计依据：LearnLM 的教学指令遵循 + SocraticLM 的 Dean 审核准则，见 research/DISCUSSIONS.md）
 - **Agent 工具**（function calling，模型自主调用）：
   | 工具 | 作用 | 需审批 |
   | --- | --- | --- |

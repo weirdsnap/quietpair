@@ -35,6 +35,11 @@ export function responseLanguage(): 'zh' | 'en' {
   return vscode.workspace.getConfiguration('vsAgent').get<string>('responseLanguage', 'zh') === 'en' ? 'en' : 'zh';
 }
 
+/** 学习模式开关：开启后聊天 Agent 叠加引导式教学姿态（见 prompts.ts LEARNING_POSTURE） */
+export function learningMode(): boolean {
+  return vscode.workspace.getConfiguration('vsAgent').get<boolean>('learningMode', false);
+}
+
 /** 注入到 system prompt 的语言指令（聊天与守望分析共用） */
 export function languageDirective(): string {
   return responseLanguage() === 'en'
