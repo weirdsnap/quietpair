@@ -106,6 +106,10 @@ body {
   opacity: 0.45;
 }
 
+#composer-row #learn-btn.off {
+  opacity: 0.45;
+}
+
 #composer-row select {
   font-size: 11px;
   max-width: 130px;
@@ -448,6 +452,33 @@ body {
 
 .quote-btn:hover {
   opacity: 1;
+}
+
+/* ---- 帮助阶梯：建议详情卡的升级按钮行 + 元认知提问 ---- */
+
+.ladder-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ladder-row .quote-btn {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  opacity: 0.75;
+}
+
+.ladder-row .quote-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.reflect-line {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+  font-style: italic;
 }
 
 /* ---- 引用建议 chip（挂在输入框上方） ---- */

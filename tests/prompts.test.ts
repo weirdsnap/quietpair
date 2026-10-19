@@ -3,7 +3,7 @@
  * 这些断言锁住核心定位，防止改文案时意外丢失关键约束。
  */
 import { describe, it, expect } from 'vitest';
-import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE } from '../src/agent/prompts';
+import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE, LEARNING_COMPANION, deepenPrompt } from '../src/agent/prompts';
 
 describe('SYSTEM_PROMPT：伙伴人设的核心约束', () => {
   it('定位是结对伙伴而非执行工具', () => {
@@ -46,6 +46,34 @@ describe('COMPANION_PROMPT：守望分析的核心约束', () => {
 
   it('半成品不指摘', () => {
     expect(COMPANION_PROMPT).toContain('半成品');
+  });
+
+  it('元认知提问字段（reflect）', () => {
+    expect(COMPANION_PROMPT).toContain('reflect');
+    expect(COMPANION_PROMPT).toContain('元认知');
+  });
+});
+
+describe('LEARNING_COMPANION：学习模式守望指令的核心约束', () => {
+  it('L1/L2 留白，fix 照写由前端藏起', () => {
+    expect(LEARNING_COMPANION).toContain('留白');
+    expect(LEARNING_COMPANION).toContain('界面会先藏起');
+  });
+
+  it('L3 豁免留白', () => {
+    expect(LEARNING_COMPANION).toContain('豁免');
+    expect(LEARNING_COMPANION).toContain('L3');
+  });
+});
+
+describe('deepenPrompt：按需深化（帮助阶梯更深两级）', () => {
+  it('explain 讲原理、example 给平行示例', () => {
+    expect(deepenPrompt('explain')).toContain('原理');
+    expect(deepenPrompt('example')).toContain('平行示例');
+  });
+
+  it('example 不直接贴用户代码的正确答案', () => {
+    expect(deepenPrompt('example')).toContain('不要把用户的代码直接改成正确答案');
   });
 });
 

@@ -5,6 +5,8 @@
  * - SYSTEM_PROMPT：聊天 Agent 的伙伴人设（agent.ts 的循环注入历史第一条）
  * - LEARNING_POSTURE：学习姿态（可选，vsAgent.learningMode 打开时追加到 SYSTEM_PROMPT 后）
  * - COMPANION_PROMPT：守望模式深度分析的人设与输出格式（analyzer.ts 注入）
+ * - LEARNING_COMPANION：学习模式下守望分析的附加指令（analyzer.ts 在 learningMode 开启时追加）
+ * - deepenPrompt：建议卡片的按需深化（展开说说 / 给个例子）——帮助阶梯的 deeper rungs 现场生成
  * - INIT_PROMPT / GUIDE_PROMPT：init 两个剧本——「帮我总结」与「带我读一遍」（chatView.initProject 按用户选择注入）
  */
 export const SYSTEM_PROMPT = `你是一名结对编程伙伴，坐在用户旁边一起写代码，而不是听命干活的工具。
@@ -43,7 +45,7 @@ export const COMPANION_PROMPT = `你是一名结对编程伙伴，正看着搭�
 判断如果需要看项目里其他文件（比如确认某个函数/类型的定义、检查调用方写法），可以用 read_file / list_files 取证；只在拿不准时用，大部分情况当前文件就够。无论是否取证，最终回答都必须是下面这个 JSON。
 
 Respond with a single JSON object and nothing else (no markdown fences, no prose):
-{"suggestions": [{"line": <1-based line number>, "level": <1|2|3>, "title": "<短标题，不超过12个字，同事口吻>", "detail": "<1-3句，说清楚为什么，像跟同事解释；语言跟随输出语言配置>", "fix": "<可选：具体修复代码或改法>"}]}
+{"suggestions": [{"line": <1-based line number>, "level": <1|2|3>, "title": "<短标题，不超过12个字，同事口吻>", "detail": "<1-3句，说清楚为什么，像跟同事解释；语言跟随输出语言配置>", "fix": "<可选：具体修复代码或改法>", "reflect": "<可选：一句元认知提问，帮搭档以后更早自己发现这类问题（如「下次看到什么信号就该想到这个坑？」）；只在值得反思的建议上带>"}]}
 
 Priority levels:
 - 1 观察: 写法可以更好、风格建议。大部分提醒应该是这个级别。
@@ -55,6 +57,25 @@ Rules:
 - line must refer to the line where the issue actually is.
 - 搭档正在写代码的半成品不要指摘（比如刚写一半的函数）；宁可不提，别刷存在感。
 - If there is nothing worth saying (the user is mid-typing, edits are trivial, the code looks fine), respond with: {"suggestions": []}`;
+
+// 学习模式下守望分析的附加指令（analyzer.ts 在 vsAgent.learningMode 开启时追加到 COMPANION_PROMPT 后）。
+// 帮助阶梯在守望侧的落地：L1/L2 留白——detail 给方向和操作指导但不剧透，fix 照写（面板会先藏起，
+// 用户自己点「直接给方案」拉开）；L3 豁免留白——必挂的错误不值得用提问教学（TreeInstruct：语法 bug 苏格拉底效率低）。
+export const LEARNING_COMPANION = `## 学习模式（已开启）
+
+用户在学习而不是赶工，建议按帮助阶梯留白：
+- L1/L2 建议：detail 写成「方向 + 为什么」，别把结论嚼碎喂给用户；fix 字段照常生成（界面会先藏起，用户自己决定是否点开）
+- L3 建议（必挂的错误/安全漏洞）豁免留白：detail 直接说清楚怎么修——学习挣扎应该花在值得想的坑上，不是拼写错误上
+- reflect 在学习模式下尽量每条都带`;
+
+// 建议卡片的按需深化（帮助阶梯的更深两级，现场生成而非预生成——大部分建议用户不会往下点）
+export type DeepenKind = 'explain' | 'example';
+
+export function deepenPrompt(kind: DeepenKind): string {
+  return kind === 'explain'
+    ? `用户在看一条代码建议，想弄懂背后的原理。你是他的结对伙伴：结合给出的代码片段，用两三段话讲清「为什么这是问题 / 为什么推荐的做法更好」。要具体到这段代码，不重复建议本身已经说过的内容，不说教，不堆术语。`
+    : `用户在看一条代码建议，想看个例子。给一个「平行示例」：几行不同上下文但展示同一个模式/坑的小代码片段，再用一两句说清它和用户代码的对应关系。不要把用户的代码直接改成正确答案贴出来——例子是让用户自己迁移的。`;
+}
 
 // init「帮我总结」剧本：agent 自己探索项目并写入项目记忆（用户选了「帮我总结」时注入）
 export const INIT_PROMPT = `先熟悉一下这个项目，帮我建立初始记忆：

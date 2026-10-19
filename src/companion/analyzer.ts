@@ -15,9 +15,9 @@
 
 import * as vscode from 'vscode';
 import { ChatMessage, TokenUsage, chatCompletion } from '../core/llm';
-import { getConfig, languageDirective } from '../core/config';
+import { getConfig, languageDirective, learningMode } from '../core/config';
 import { readOnlyToolDefinitions, executeReadOnlyTool } from '../agent/tools';
-import { COMPANION_PROMPT } from '../agent/prompts';
+import { COMPANION_PROMPT, LEARNING_COMPANION } from '../agent/prompts';
 import { memoryStore } from '../memory/store';
 import { Suggestion, SuggestionLevel } from './annotations';
 import { ActivityTracker } from './activity';
@@ -63,6 +63,7 @@ export function parseSuggestions(text: string): Suggestion[] | null {
           title: String(s.title),
           detail: String(s.detail),
           fix: typeof s.fix === 'string' && s.fix.trim() ? s.fix : undefined,
+          reflect: typeof s.reflect === 'string' && s.reflect.trim() ? s.reflect : undefined,
         };
       });
   } catch {
@@ -181,10 +182,14 @@ ${content}
 
     // 项目记忆注入：建议可以引用项目约定/决策，而不只是通用判断
     const memory = await memoryStore.read();
-    const system =
+    let system =
       (memory.trim()
         ? `${COMPANION_PROMPT}\n\n## 项目记忆（这个项目的背景知识与约定，判断时参考）\n${memory}`
         : COMPANION_PROMPT) + languageDirective();
+    // 学习模式：L1/L2 留白（detail 给方向不剧透），L3 豁免
+    if (learningMode()) {
+      system += `\n\n${LEARNING_COMPANION}`;
+    }
     const messages: ChatMessage[] = [
       { role: 'system', content: system },
       { role: 'user', content: userMessage },

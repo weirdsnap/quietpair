@@ -16,6 +16,7 @@ export interface Suggestion {
   title: string;
   detail: string;
   fix?: string;
+  reflect?: string; // 元认知提问：帮用户以后更早自己发现这类问题
   pending?: boolean; // 待确认：用户编辑过该文件，AI 还没确认新内容
 }
 
@@ -177,6 +178,9 @@ export class AnnotationManager implements vscode.Disposable {
     md.appendMarkdown(`**${levelIcon(s.level)} L${s.level} ${LEVEL_LABEL[s.level]} · ${s.title}**\n\n${s.detail}`);
     if (s.fix) {
       md.appendMarkdown(`\n\nSuggested fix:\n\`\`\`\n${s.fix}\n\`\`\``);
+    }
+    if (s.reflect) {
+      md.appendMarkdown(`\n\n🪞 _${s.reflect}_`);
     }
     const args = encodeURIComponent(JSON.stringify([uriStr, index]));
     md.appendMarkdown(

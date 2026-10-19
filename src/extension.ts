@@ -11,7 +11,9 @@ import { ActivityTracker } from './companion/activity';
 import { SharedContext } from './memory/sharedContext';
 import { Logger } from './core/logger';
 import { UsageTracker } from './core/usage';
-import { getApiKey, promptForApiKey } from './core/config';
+import { getApiKey, promptForApiKey, getConfig, languageDirective } from './core/config';
+import { chatCompletion } from './core/llm';
+import { deepenPrompt, DeepenKind } from './agent/prompts';
 
 function formatSummary(items: Suggestion[]): string {
   return items
@@ -43,9 +45,11 @@ export function activate(context: vscode.ExtensionContext) {
     void vscode.window.showWarningMessage(
       `QuietPair: ${file}${first.line ? `:${first.line}` : ''} — ${first.title}${l3.length > 1 ? ` (${l3.length} critical issues)` : ''}`
     );
-    chatProvider.showSuggestionDetail(
+    chatProvider.showSuggestionCard(
+      first,
       `${levelIcon(3)} ${file}${first.line ? `:${first.line}` : ''} — ${first.title}`,
-      `${first.detail}${first.fix ? `\n\nSuggested fix:\n${first.fix}` : ''}`
+      uri.toString(),
+      items.indexOf(first)
     );
   }
 
@@ -93,6 +97,58 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Agent 的 analyze_code 工具：对话中触发守望分析（「帮我看看这段代码」）
   chatProvider.onRequestAnalysis = (p) => companion.analyzeRequested(p);
+
+  // 建议卡片的按需深化：帮助阶梯的更深两级现场生成（展开说说=原理 / 给个例子=平行示例）
+  chatProvider.onDeepenSuggestion = async (uriStr, index, kind: DeepenKind) => {
+    const s = annotations.get(uriStr, index);
+    if (!s) {
+      return;
+    }
+    const apiKey = await getApiKey(context);
+    if (!apiKey) {
+      chatProvider.note('No API key', 'Set an API key first (key button above).');
+      return;
+    }
+    const uri = vscode.Uri.parse(uriStr);
+    const file = vscode.workspace.asRelativePath(uri);
+    logger.event('companion', { phase: 'deepen', file, kind, summary: `deepen (${kind}): ${s.title}` });
+    try {
+      // 上下文给建议行 ±40 行的窗口，够理解又不必整文件
+      const doc = await vscode.workspace.openTextDocument(uri);
+      const line = s.line ?? 1;
+      const start = Math.max(0, line - 41);
+      const end = Math.min(doc.lineCount, line + 40);
+      const snippet = doc.getText(new vscode.Range(start, 0, end, 0));
+      const { baseUrl, model } = getConfig();
+      const result = await chatCompletion({
+        baseUrl,
+        apiKey,
+        model,
+        messages: [
+          { role: 'system', content: deepenPrompt(kind) + languageDirective() },
+          {
+            role: 'user',
+            content: `File: ${file}\n\n建议：【${s.title}】\n${s.detail}\n\n相关代码（第 ${start + 1}-${end} 行）：\n\`\`\`\n${snippet}\n\`\`\``,
+          },
+        ],
+      });
+      if (result.usage) {
+        usage.add('companion', result.usage);
+        logger.event('usage', {
+          source: 'companion',
+          prompt: result.usage.promptTokens,
+          completion: result.usage.completionTokens,
+          summary: `usage deepen: ${result.usage.totalTokens} tokens`,
+        });
+      }
+      chatProvider.note(
+        kind === 'example' ? `📎 Example — ${s.title}` : `💡 Deeper — ${s.title}`,
+        result.content.trim() || '(empty response)'
+      );
+    } catch (err) {
+      chatProvider.note('Deepen failed', err instanceof Error ? err.message : String(err));
+    }
+  };
 
   // 聊天 Agent 写完文件 → 守望立刻复审 → 自动闭环：
   // 干净 → 静默确认；L2/L3 → 回灌给 Agent 自我修正（最多 2 轮，防乒乓）；到顶摊牌给用户
@@ -182,10 +238,11 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
       sharedContext.markViewed(file, s.line); // 用户点开了这条 = 后续模糊提问大概率指它
-      const text = `${s.detail}${s.fix ? `\n\nSuggested fix:\n${s.fix}` : ''}`;
-      chatProvider.showSuggestionDetail(
+      chatProvider.showSuggestionCard(
+        s,
         `${levelIcon(s.level)} L${s.level} ${LEVEL_LABEL[s.level]} · ${file}${s.line ? `:${s.line}` : ''} — ${s.title}`,
-        text
+        uriStr,
+        index
       );
     }),
     vscode.commands.registerCommand('vs-agent.applySuggestion', async (uriStr: string, index: number) => {

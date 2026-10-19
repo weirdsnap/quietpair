@@ -15,6 +15,7 @@ import { SharedContext } from '../memory/sharedContext';
 import { Logger } from '../core/logger';
 import { UsageTracker } from '../core/usage';
 import { memoryStore, MEMORY_TEMPLATE } from '../memory/store';
+import type { Suggestion } from '../companion/annotations';
 
 const HISTORY_KEY = 'vsAgent.history';
 const HISTORY_PERSIST_LIMIT = 150;
@@ -43,6 +44,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   // Agent 的 analyze_code 工具（对话中触发守望分析），由装配层接到 Companion
   onRequestAnalysis?: (path?: string) => Promise<string>;
+
+  // 建议卡片的按需深化（展开说说 / 给个例子），由装配层接到一次性的 deepen LLM 调用
+  onDeepenSuggestion?: (uriStr: string, index: number, kind: 'explain' | 'example') => void;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -88,9 +92,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return this.running;
   }
 
-  showSuggestionDetail(title: string, text: string): void {
+  // 建议详情卡（结构化）：帮助阶梯的展示层——detail 直接给，reflect 元认知提问随行，
+  // fix 在学习模式且非 L3 时先藏起（masked），用户点「直接给方案」才拉开
+  showSuggestionCard(s: Suggestion, title: string, uriStr: string, index: number): void {
     this.view?.show(true);
-    this.post({ type: 'note', title, text });
+    this.post({
+      type: 'suggestionCard',
+      title,
+      detail: s.detail,
+      reflect: s.reflect,
+      fix: s.fix,
+      masked: learningMode() && s.level !== 3 && !!s.fix,
+      uriStr,
+      index,
+    });
   }
 
   // 低调提示：只进面板，不抢焦点（修复确认结果等场景用）
@@ -410,6 +425,9 @@ ${serialized}`,
     approved?: boolean;
     answer?: string;
     settings?: Record<string, unknown>;
+    uriStr?: string;
+    index?: number;
+    kind?: string;
   }): Promise<void> {
     switch (msg.type) {
       case 'send':
@@ -463,6 +481,21 @@ ${serialized}`,
           .getConfiguration('vsAgent')
           .update('companion.enabled', next, vscode.ConfigurationTarget.Global);
         this.postCompanionState();
+        break;
+      }
+      case 'toggleLearning': {
+        await vscode.workspace
+          .getConfiguration('vsAgent')
+          .update('learningMode', !learningMode(), vscode.ConfigurationTarget.Global);
+        // 快切走全局设置，按钮状态经 sendSettings 回推同步（设置页保存也走同一条路）
+        await this.sendSettings();
+        break;
+      }
+      case 'deepenSuggestion': {
+        const kind = msg.kind === 'example' ? 'example' : 'explain';
+        if (typeof msg.uriStr === 'string' && typeof msg.index === 'number') {
+          this.onDeepenSuggestion?.(msg.uriStr, msg.index, kind);
+        }
         break;
       }
       case 'ready':
@@ -688,6 +721,7 @@ ${serialized}`,
     <textarea id="input" rows="3" placeholder="Ask the agent… (Enter to send, Shift+Enter for newline)"></textarea>
     <div id="composer-row">
       <button id="companion-btn" title="Companion watch mode: automatically analyze the code you are editing">Watch</button>
+      <button id="learn-btn" title="Learning mode: guidance comes as questions and hints; answers stay behind a click">Learn</button>
       <select id="model-select" title="Model (quick switch)"></select>
       <select id="permission-select" title="Write permissions">
         <option value="discuss">discuss</option>

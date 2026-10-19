@@ -335,6 +335,8 @@
     });
     modelSelect.value = s.model || '';
     permissionSelect.value = s.permissionMode || 'ask';
+    learnBtn.textContent = 'Learn·' + (s.learningMode ? 'On' : 'Off');
+    learnBtn.classList.toggle('off', !s.learningMode);
   }
 
   modelSelect.addEventListener('change', function () {
@@ -347,6 +349,11 @@
   const companionBtn = document.getElementById('companion-btn');
   companionBtn.addEventListener('click', function () {
     vscode.postMessage({ type: 'toggleCompanion' });
+  });
+
+  const learnBtn = document.getElementById('learn-btn');
+  learnBtn.addEventListener('click', function () {
+    vscode.postMessage({ type: 'toggleLearning' });
   });
 
   const suggestions = new Map();
@@ -397,6 +404,60 @@
     }
     entry.headerLabel.textContent = '💡 Suggestions for ' + file;
     renderRich(entry.body, content);
+    scrollToBottom();
+  }
+
+  // 建议详情卡（帮助阶梯的展示层）：detail 直接给，reflect 随行；
+  // fix 在 masked（学习模式且非 L3）时藏起，点「直接给方案」本地拉开；
+  // 展开说说 / 给个例子是按需深化，发给扩展端现场生成
+  function renderSuggestionCard(m) {
+    const entry = buildSuggestionCard(m.title);
+    renderRich(entry.body, m.detail || '');
+    if (m.reflect) {
+      const r = document.createElement('div');
+      r.className = 'reflect-line';
+      r.textContent = '🪞 ' + m.reflect;
+      entry.body.appendChild(r);
+    }
+    const row = document.createElement('div');
+    row.className = 'ladder-row';
+    function deepenBtn(kind, label) {
+      const btn = document.createElement('button');
+      btn.className = 'quote-btn';
+      btn.textContent = label;
+      btn.title = 'Generate on demand (one LLM call)';
+      btn.addEventListener('click', function () {
+        vscode.postMessage({ type: 'deepenSuggestion', uriStr: m.uriStr, index: m.index, kind: kind });
+        btn.disabled = true;
+        btn.textContent = label + '…';
+      });
+      row.appendChild(btn);
+    }
+    deepenBtn('explain', '展开说说');
+    deepenBtn('example', '给个例子');
+    if (m.fix) {
+      if (m.masked) {
+        const fixDiv = document.createElement('div');
+        fixDiv.className = 'hidden';
+        renderRich(fixDiv, 'Suggested fix:\n```\n' + m.fix + '\n```');
+        entry.body.appendChild(fixDiv);
+        const reveal = document.createElement('button');
+        reveal.className = 'quote-btn';
+        reveal.textContent = '直接给方案';
+        reveal.title = 'Reveal the suggested fix (local, no LLM call)';
+        reveal.addEventListener('click', function () {
+          fixDiv.classList.remove('hidden');
+          reveal.remove();
+          scrollToBottom();
+        });
+        row.appendChild(reveal);
+      } else {
+        const fixDiv = document.createElement('div');
+        renderRich(fixDiv, 'Suggested fix:\n```\n' + m.fix + '\n```');
+        entry.body.appendChild(fixDiv);
+      }
+    }
+    entry.body.appendChild(row);
     scrollToBottom();
   }
 
@@ -548,6 +609,10 @@
         currentAssistant = null;
         break;
       }
+      case 'suggestionCard':
+        renderSuggestionCard(msg);
+        currentAssistant = null;
+        break;
       case 'companionState':
         companionBtn.textContent = 'Watch·' + (msg.enabled ? 'On' : 'Off');
         companionBtn.classList.toggle('off', !msg.enabled);
