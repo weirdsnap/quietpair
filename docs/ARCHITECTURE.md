@@ -14,11 +14,15 @@ src/
 │   ├── config.ts           设置项读取（vsAgent.*）+ API key（SecretStorage 优先）+ 输出语言指令
 │   │                       （vsAgent.responseLanguage，注入聊天与守望的 system prompt）
 │   │                       + 学习模式开关（vsAgent.learningMode）
-│   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、tool_calls 累积、AbortSignal、usage 回收
+│   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、reasoning_content 思考流捕获、
+│   │                       tool_calls 累积、AbortSignal、usage 回收
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
 │   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换事件，
 │   │                       全走 logger 落 transcript（kind: metric）——评测/个性化的数据底子
-│   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘
+│   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘；每条事件打 track
+│                           （chat/watch/metrics/system，由 kind 推导）+ turnId（chat-N / watch-N
+│                           闭环圈定）信封；内存 ring buffer（近 1000 条）+ onEvent 订阅，
+│                           供面板 Activity 视图全量拉取和实时推送
 │
 ├── agent/                  聊天 Agent
 │   ├── agent.ts            runAgent 工具循环；循环只认通用事件（token/工具/完成/打断），
@@ -35,7 +39,8 @@ src/
 │
 ├── companion/              守望模式（编排层 + 决策层 + 职责模块）
 │   ├── companion.ts        编排层：编辑/切换编辑器事件监听与调度，公开入口
-│   │                       （手动触发 / 聊天 analyze_code / 复审 reviewFiles / 确认修复 confirmFix）
+│   │                       （手动触发 / 聊天 analyze_code / 复审 reviewFiles / 确认修复 confirmFix）；
+│   │                       每次决策开口发 watch-N 作 turnId（分诊叫醒也经它领号）
 │   ├── decision.ts         开口决策层（纯函数）：「现在该不该开口」的唯一权威，汇所有门控信号为
 │   │                       speak/delay/suppress 三值判定（对齐 TMLR must/may/must-not 窗口思想），
 │   │                       每次判定落 transcript（phase: 'decision'）——时机评测/个性化的数据底子
@@ -56,10 +61,12 @@ src/
 │                           「正在看」标记 + 卡片Discuss按钮引用解决模糊指代）
 │
 └── ui/
-    └── chatView.ts         Webview 后端：会话历史（持久化+压缩）、审批、打断、设置页
+    └── chatView.ts         Webview 后端：会话历史（持久化+压缩）、审批、打断、设置页；
+                            每次运行发 chat-N 作 turnId，把这轮的思考/工具/审批/回答圈成闭环
 
 media/
-├── chat.js                 Webview 前端：消息渲染（迷你 markdown）、交互
+├── chat.js                 Webview 前端：消息渲染（迷你 markdown）、reasoning 思考流折叠块、
+│                           Activity 视图（统一事件流：轨道过滤芯片 + turnId 分组 + 实时推送）、交互
 └── chat.css                样式（全部使用 VS Code 主题变量）
 ```
 

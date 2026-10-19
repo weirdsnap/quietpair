@@ -102,6 +102,41 @@
     scrollToBottom();
   }
 
+  // ---- 思考流（推理模型的 reasoning_content）：流式时展开，说完自动折叠 ----
+
+  let currentReasoning = null; // {details, pre, label}
+
+  function addReasoningBlock() {
+    removeEmptyHint();
+    const d = document.createElement('details');
+    d.className = 'msg reasoning';
+    d.open = true;
+    const sum = document.createElement('summary');
+    const icon = document.createElement('span');
+    icon.className = 'tool-icon';
+    icon.textContent = '💭';
+    const label = document.createElement('span');
+    label.className = 'tool-name';
+    label.textContent = 'Thinking…';
+    sum.appendChild(icon);
+    sum.appendChild(label);
+    const pre = document.createElement('pre');
+    d.appendChild(sum);
+    d.appendChild(pre);
+    messages.appendChild(d);
+    scrollToBottom();
+    return { details: d, pre: pre, label: label };
+  }
+
+  // 思考段结束（开始说话/调工具/收尾）：折叠收起，标题从进行时变过去式
+  function finishReasoning() {
+    if (currentReasoning) {
+      currentReasoning.details.open = false;
+      currentReasoning.label.textContent = 'Thought process';
+      currentReasoning = null;
+    }
+  }
+
   function addConfirmBubble(id, action, detail) {
     removeEmptyHint();
     const div = document.createElement('div');
@@ -300,7 +335,7 @@
     toggleSettings();
   });
   document.getElementById('logs-btn').addEventListener('click', function () {
-    vscode.postMessage({ type: 'openLogs' });
+    toggleActivity();
   });
   document.getElementById('init-btn').addEventListener('click', function () {
     addBubble('user', 'Get familiar with this project and build the initial memory.');
@@ -549,6 +584,120 @@
     toggleSettings(false);
   });
 
+  // ---- Activity 视图：统一事件流（logger ring buffer），按轨道过滤、按 turnId 分组 ----
+
+  const activityView = document.getElementById('activity-view');
+  const activityList = document.getElementById('activity-list');
+  let activityOpen = false;
+  let activityFilter = 'all';
+  let activityEntries = [];
+  const ACTIVITY_CAP = 1000;
+
+  function toggleActivity(open) {
+    activityOpen = open === undefined ? !activityOpen : open;
+    activityView.classList.toggle('hidden', !activityOpen);
+    if (activityOpen) {
+      vscode.postMessage({ type: 'getActivityLog' });
+    }
+  }
+
+  function activityMatches(entry) {
+    return activityFilter === 'all' || entry.track === activityFilter;
+  }
+
+  function entrySummary(entry) {
+    if (typeof entry.summary === 'string') {
+      return entry.summary;
+    }
+    try {
+      return JSON.stringify(entry).slice(0, 160);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function buildActivityRow(entry) {
+    const d = document.createElement('details');
+    d.className = 'act-row track-' + (entry.track || 'system');
+    const sum = document.createElement('summary');
+    const time = document.createElement('span');
+    time.className = 'act-time';
+    time.textContent = typeof entry.ts === 'string' ? entry.ts.slice(11, 19) : '';
+    const kind = document.createElement('span');
+    kind.className = 'act-kind';
+    kind.textContent = entry.kind + (entry.phase ? '·' + entry.phase : '');
+    const text = document.createElement('span');
+    text.className = 'act-summary';
+    text.textContent = entrySummary(entry);
+    sum.appendChild(time);
+    sum.appendChild(kind);
+    sum.appendChild(text);
+    const pre = document.createElement('pre');
+    try {
+      pre.textContent = JSON.stringify(entry, null, 2);
+    } catch (e) {
+      pre.textContent = String(entry);
+    }
+    d.appendChild(sum);
+    d.appendChild(pre);
+    return d;
+  }
+
+  // turnId 变化时插一个组头：把「一次闭环」的事件在视觉上圈出来；学习模式徽章随行
+  function buildGroupHeader(entry) {
+    const h = document.createElement('div');
+    h.className = 'act-group';
+    h.textContent = entry.turnId;
+    if (entry.learningMode === true) {
+      const badge = document.createElement('span');
+      badge.className = 'act-badge';
+      badge.textContent = 'Learn';
+      h.appendChild(badge);
+    }
+    return h;
+  }
+
+  function appendActivityEntry(entry) {
+    const prev = activityEntries[activityEntries.length - 2]; // push 之前的最后一条
+    if (entry.turnId && (!prev || prev.turnId !== entry.turnId)) {
+      activityList.appendChild(buildGroupHeader(entry));
+    }
+    activityList.appendChild(buildActivityRow(entry));
+    activityList.scrollTop = activityList.scrollHeight;
+  }
+
+  function renderActivity() {
+    activityList.innerHTML = '';
+    let lastTurnId = null;
+    activityEntries.forEach(function (entry) {
+      if (!activityMatches(entry)) {
+        return;
+      }
+      if (entry.turnId && entry.turnId !== lastTurnId) {
+        activityList.appendChild(buildGroupHeader(entry));
+      }
+      lastTurnId = entry.turnId || lastTurnId;
+      activityList.appendChild(buildActivityRow(entry));
+    });
+    activityList.scrollTop = activityList.scrollHeight;
+  }
+
+  document.getElementById('activity-close').addEventListener('click', function () {
+    toggleActivity(false);
+  });
+  document.getElementById('activity-open-logs').addEventListener('click', function () {
+    vscode.postMessage({ type: 'openLogs' });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('#activity-filters .chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      activityFilter = chip.dataset.track;
+      Array.prototype.forEach.call(document.querySelectorAll('#activity-filters .chip'), function (c) {
+        c.classList.toggle('active', c === chip);
+      });
+      renderActivity();
+    });
+  });
+
   // ---- 扩展端消息 ----
 
   window.addEventListener('message', function (e) {
@@ -563,7 +712,15 @@
         renderRich(currentAssistant, currentAssistant.dataset.raw);
         scrollToBottom();
         break;
+      case 'reasoning':
+        if (!currentReasoning) {
+          currentReasoning = addReasoningBlock();
+        }
+        currentReasoning.pre.textContent += msg.text;
+        scrollToBottom();
+        break;
       case 'toolStart':
+        finishReasoning();
         addToolCard(msg.name, msg.args, false);
         currentAssistant = null;
         break;
@@ -572,17 +729,21 @@
         currentAssistant = null;
         break;
       case 'confirm':
+        finishReasoning();
         addConfirmBubble(msg.id, msg.action, msg.detail);
         currentAssistant = null;
         break;
       case 'choice':
+        finishReasoning();
         addChoiceBubble(msg.id, msg.question, msg.options || []);
         currentAssistant = null;
         break;
       case 'done':
+        finishReasoning();
         currentAssistant = null;
         break;
       case 'interrupted': {
+        finishReasoning();
         const entry = buildSuggestionCard('⏹ Stopped');
         entry.body.textContent = '(was ' + (msg.activity || 'composing reply') + ') — go ahead, I am listening.';
         scrollToBottom();
@@ -590,6 +751,7 @@
         break;
       }
       case 'error':
+        finishReasoning();
         addBubble('error', msg.message);
         currentAssistant = null;
         break;
@@ -651,6 +813,25 @@
       case 'setQuote':
         setQuote(msg.title, msg.body || '');
         break;
+      case 'activityLog':
+        activityEntries = msg.entries || [];
+        if (activityOpen) {
+          renderActivity();
+        }
+        break;
+      case 'activityEvent': {
+        if (!msg.entry) {
+          break;
+        }
+        activityEntries.push(msg.entry);
+        if (activityEntries.length > ACTIVITY_CAP) {
+          activityEntries.splice(0, activityEntries.length - ACTIVITY_CAP);
+        }
+        if (activityOpen && activityMatches(msg.entry)) {
+          appendActivityEntry(msg.entry);
+        }
+        break;
+      }
       case 'cleared':
         showEmptyHint();
         setBusy(false);

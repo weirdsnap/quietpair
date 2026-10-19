@@ -49,6 +49,15 @@ export const window = {
   get activeTextEditor() {
     return state.activeEditor;
   },
+  // Logger 用：Output 通道的最小桩（静默丢弃）
+  createOutputChannel() {
+    return {
+      info() {},
+      error() {},
+      show() {},
+      dispose() {},
+    };
+  },
 };
 
 export const Uri = {

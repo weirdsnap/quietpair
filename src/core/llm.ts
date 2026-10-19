@@ -34,18 +34,22 @@ export interface ChatCompletionOptions {
   messages: ChatMessage[];
   tools?: unknown[];
   onToken?: (text: string) => void;
+  // 推理模型（deepseek-reasoner 等）的思考流 delta.reasoning_content；普通模型不会触发
+  onReasoning?: (text: string) => void;
   signal?: AbortSignal;
 }
 
 export interface ChatCompletionResult {
   content: string;
+  // 完整思考过程（不回灌历史：reasoning_content 不应出现在下一轮请求里）
+  reasoning?: string;
   toolCalls: ToolCall[];
   usage?: TokenUsage;
   aborted?: boolean;
 }
 
 export async function chatCompletion(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
-  const { baseUrl, apiKey, model, messages, tools, onToken, signal } = options;
+  const { baseUrl, apiKey, model, messages, tools, onToken, onReasoning, signal } = options;
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -73,6 +77,7 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
+  let reasoning = '';
   let usage: TokenUsage | undefined;
   const toolCalls: ToolCall[] = [];
 
@@ -113,6 +118,10 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
         if (!delta) {
           continue;
         }
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+          reasoning += delta.reasoning_content;
+          onReasoning?.(delta.reasoning_content);
+        }
         if (typeof delta.content === 'string' && delta.content.length > 0) {
           content += delta.content;
           onToken?.(delta.content);
@@ -139,10 +148,10 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
   } catch (err) {
     // 被打断不是错误：返回已说出的部分内容，让调用方标记后留存
     if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
-      return { content, toolCalls: toolCalls.filter((tc) => tc.id), usage, aborted: true };
+      return { content, reasoning: reasoning || undefined, toolCalls: toolCalls.filter((tc) => tc.id), usage, aborted: true };
     }
     throw err;
   }
 
-  return { content, toolCalls: toolCalls.filter((tc) => tc.id), usage, aborted: signal?.aborted };
+  return { content, reasoning: reasoning || undefined, toolCalls: toolCalls.filter((tc) => tc.id), usage, aborted: signal?.aborted };
 }

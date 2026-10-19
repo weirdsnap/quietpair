@@ -115,18 +115,20 @@ export class Analyzer {
    * 跑一次完整分析，返回本次产出的建议；null = 没有产出新分析（未变化 / 被打断 / 无 key / 冷却推迟）。
    * opts.bypassCooldown：复审、手动触发、分诊叫醒等「现在就要看」的场景不受冷却限制。
    * opts.force：内容没变也分析（测试 prompt/链路时需要）。
+   * opts.turnId：编排层发的 watch-N，用作本次分析的 id，让「决策→分析→标注」在日志里圈成一个闭环。
    */
   async analyze(
     doc: vscode.TextDocument,
     label: string,
     extraNote?: string,
-    opts?: { bypassCooldown?: boolean; force?: boolean },
+    opts?: { bypassCooldown?: boolean; force?: boolean; turnId?: string },
   ): Promise<Suggestion[] | null> {
+    const turnId = opts?.turnId;
     const full = doc.getText();
     const hash = this.hash(full);
     const docKey = doc.uri.toString();
     if (!opts?.force && this.lastHash.get(docKey) === hash) {
-      this.deps.onDebug?.('skip', { file: vscode.workspace.asRelativePath(doc.uri), reason: 'unchanged' });
+      this.deps.onDebug?.('skip', { file: vscode.workspace.asRelativePath(doc.uri), reason: 'unchanged', turnId });
       return null;
     }
 
@@ -134,7 +136,7 @@ export class Analyzer {
     if (!opts?.bypassCooldown) {
       const wait = this.cooldownMs() - (Date.now() - this.lastAnalysisAt);
       if (wait > 0) {
-        this.deps.onDebug?.('gate', { result: 'cooldown', waitMs: wait, summary: `gate: cooldown → wait ${Math.round(wait / 1000)}s` });
+        this.deps.onDebug?.('gate', { result: 'cooldown', waitMs: wait, turnId, summary: `gate: cooldown → wait ${Math.round(wait / 1000)}s` });
         this.deps.onCooldownDefer(wait);
         return null;
       }
@@ -182,7 +184,7 @@ Current content:
 ${content}
 \`\`\``;
 
-    const id = `sug-${++this.counter}`;
+    const id = turnId ?? `sug-${++this.counter}`;
     this.deps.onAnalysisStart(id, relPath, label);
 
     // 项目记忆注入：建议可以引用项目约定/决策，而不只是通用判断
@@ -203,6 +205,7 @@ ${content}
     try {
       const { baseUrl, model } = getConfig();
       let answer = '';
+      let reasoningAll = '';
       // 工具循环：模型拿不准时可调只读工具取证，最多 3 轮；最后一轮收走工具，必须给出 JSON
       for (let step = 0; step <= MAX_TOOL_STEPS; step++) {
         const result = await chatCompletion({
@@ -215,6 +218,9 @@ ${content}
         });
         if (controller.signal.aborted) {
           return null;
+        }
+        if (result.reasoning) {
+          reasoningAll += `${result.reasoning}\n`;
         }
         if (result.usage) {
           this.deps.onUsage?.(result.usage);
@@ -233,13 +239,21 @@ ${content}
           })),
         });
         for (const tc of result.toolCalls) {
-          this.deps.onDebug?.('tool', { name: tc.name, args: tc.arguments.slice(0, 500), summary: `companion tool → ${tc.name}` });
+          this.deps.onDebug?.('tool', { name: tc.name, args: tc.arguments.slice(0, 500), turnId: id, summary: `companion tool → ${tc.name}` });
           const out = await executeReadOnlyTool(tc.name, tc.arguments);
           messages.push({ role: 'tool', tool_call_id: tc.id, content: out });
         }
       }
       if (controller.signal.aborted) {
         return null;
+      }
+      // 守望的思考流（推理模型才有）：作为 companion 事件落 transcript，watch 轨道可见
+      if (reasoningAll.trim()) {
+        this.deps.onDebug?.('reasoning', {
+          turnId: id,
+          text: reasoningAll.trim(),
+          summary: `companion reasoning: ${reasoningAll.trim().slice(0, 200)}`,
+        });
       }
       this.lastHash.set(docKey, hash);
 

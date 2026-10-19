@@ -23,6 +23,8 @@ export interface SaveTriageDeps {
   isEnabled(): boolean;
   onDebug?(event: string, data: Record<string, unknown>): void;
   onUsage?(usage: TokenUsage): void;
+  /** 分诊叫醒深度分析时领取 watch-N（由编排层统一发号，和常规触发同一序列） */
+  nextTurnId?(): string;
 }
 
 export class SaveTriage implements vscode.Disposable {
@@ -102,15 +104,17 @@ ${this.activity?.summarize() || '(无)'}
         this.deps.onUsage?.(usage);
       }
       const wake = /^\s*yes/i.test(content);
+      const turnId = wake ? this.deps.nextTurnId?.() : undefined;
       this.deps.onDebug?.('triage', {
         file: rel,
         decision: wake ? 'wake' : 'skip',
         answer: content.trim().slice(0, 20),
+        turnId,
         summary: `triage: ${rel} → ${wake ? '叫醒守望' : '不值得'}`,
       });
       if (wake) {
         // 分诊说值得：绕过冷却直接分析（哈希去重仍生效，上面已确认有变化）
-        await this.analyzer.analyze(doc, `Reviewing saved ${rel}…`, undefined, { bypassCooldown: true });
+        await this.analyzer.analyze(doc, `Reviewing saved ${rel}…`, undefined, { bypassCooldown: true, turnId });
       }
     } catch (err) {
       this.deps.onDebug?.('triage', { file: rel, decision: 'error', error: err instanceof Error ? err.message : String(err) });

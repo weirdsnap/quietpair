@@ -23,7 +23,7 @@ vs_agent/
 │   │   ├── config.ts          # 读取配置项（baseUrl/model）+ SecretStorage 存取 API key
 │   │   ├── llm.ts             # OpenAI 兼容的流式 chat completions 客户端（SSE 解析，支持 AbortSignal，回传 token 用量）
 │   │   ├── usage.ts           # Token 消耗统计：会话级 + 全局累计，按来源（聊天/守望/压缩）细分
-│   │   └── logger.ts          # 双通道日志：Output 面板实时日志 + JSONL transcript 落盘复盘
+│   │   └── logger.ts          # 双通道日志：Output 面板实时日志 + JSONL transcript 落盘复盘；track/turnId 信封 + 内存 ring buffer 供面板 Activity 视图
 │   ├── agent/                 # 聊天 Agent：对话与工具执行
 │   │   ├── agent.ts           # Agent 循环：发消息 → 收工具调用 → 执行 → 回灌结果（连续纯读工具并行）
 │   │   ├── prompts.ts         # 所有面向模型的 prompt：伙伴人设 + 守望分析人设（调文案只改这里）
@@ -148,6 +148,7 @@ vs_agent/
 | kind | 内容 |
 | --- | --- |
 | `user` / `assistant` | 用户消息、AI 完整回答（含被打断的半成品） |
+| `reasoning` | 推理模型（deepseek-reasoner 等）的完整思考流（聊天侧；守望侧的思考走 `companion` 的 `phase: 'reasoning'`）。只记录和展示，不回灌对话历史 |
 | `tool_call` / `tool_result` | 工具名、参数、结果（截断保护） |
 | `approval` | 审批请求内容 + 用户批准/拒绝的决定 |
 | `companion` | 守望全链路：触发原因（`deletion`/`paste`/`statement-boundary`/`typing`）与延迟、开口决策（`phase: 'decision'`，三值判定 `speak`/`delay`/`suppress` + 理由）、哈希去重跳过、分析中自主取证的工具调用、分析结果（建议数、级别、明细） |
@@ -156,7 +157,12 @@ vs_agent/
 | `interrupt` | 打断时刻正在做什么、说到了哪 |
 | `error` | API 错误等异常 |
 
-查看入口：面板顶栏 **Logs** 或命令 `QuietPair: Open Logs`，可打开本次会话 transcript / 实时 Output 面板 / 日志目录。
+每条事件还带两个索引字段：
+
+- **`track`（轨道）**：由 kind 推导——`chat`（user/assistant/reasoning/工具/审批/打断）、`watch`（companion）、`metrics`（metric/usage）、`system`（lifecycle/error）。聊天和守望是**同一条事件流、同一时间轴**，轨道只是视图层的过滤维度
+- **`turnId`（闭环圈定）**：`chat-N` = 一次 Agent 运行（思考→工具→审批→回答）；`watch-N` = 一次「开口决策→分析→标注」链路（决策事件和分析事件共享同一个 id）。复盘时按 turnId 就能把一次完整闭环捞出来
+
+查看入口：**面板顶栏 Activity 按钮**——面板内的事件流视图，All/Chat/Watch/Metrics/System 轨道过滤芯片、按 turnId 分组（学习模式的轮次带 Learn 徽章）、每行可展开看完整 JSON、新事件实时流入；视图里的 **Logs…** 或命令 `QuietPair: Open Logs` 可打开本次会话 transcript 原文 / 实时 Output 面板 / 日志目录。
 
 **Token 用量统计**：请求时带 `stream_options.include_usage`，每次调用（聊天/守望/压缩，含守望自主取证的每一轮）的输入/输出 token 都累计——面板工具栏右侧的 `⇅ 12.3k` 小计数显示本次会话总量，悬停看分来源明细和历史累计（存 globalState 跨会话）；每次调用同时记一条 `usage` 事件进 transcript。注意：不返回 usage 的网关不计入统计。
 

@@ -73,12 +73,13 @@ export function activate(context: vscode.ExtensionContext) {
     getApiKey: () => getApiKey(context),
     isBusy: () => chatProvider.isBusy,
     onAnalysisStart: (id, file, label) => {
-      logger.event('companion', { phase: 'start', file, label, summary: `companion: ${label}` });
+      logger.event('companion', { phase: 'start', turnId: id, file, label, summary: `companion: ${label}` });
       chatProvider.suggestionStart(id, file, label);
     },
     onAnalysisEnd: (id, file, uri, suggestions, rawText) => {
       logger.event('companion', {
         phase: 'end',
+        turnId: id,
         file,
         count: suggestions.length,
         levels: suggestions.map((s) => s.level),

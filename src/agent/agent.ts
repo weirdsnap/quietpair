@@ -15,6 +15,8 @@ const MAX_STEPS = 20;
 
 export interface AgentEvents {
   onToken(text: string): void;
+  // 推理模型的思考流（deepseek-reasoner 等）；展示+落 transcript，不进对话历史
+  onReasoning?(text: string): void;
   onToolStart(name: string, args: string): void;
   onToolResult(name: string, result: string): void;
   onDone(): void;
@@ -62,6 +64,7 @@ export async function runAgent(
         messages: history,
         tools: toolDefinitions,
         onToken: events.onToken,
+        onReasoning: events.onReasoning,
         signal: deps.signal,
       });
     } catch (err) {

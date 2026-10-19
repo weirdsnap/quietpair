@@ -45,9 +45,15 @@ export type ConfirmResult =
 export class Companion implements vscode.Disposable {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private retryCount = 0;
+  // 一次「决策→分析→标注」链路 = 一个 watch-N，与 chat-N 在同一条事件流里对齐时间轴
+  private watchCounter = 0;
   private readonly analyzer: Analyzer;
   private readonly triage: SaveTriage;
   private disposables: vscode.Disposable[] = [];
+
+  private nextWatchId(): string {
+    return `watch-${++this.watchCounter}`;
+  }
 
   constructor(private readonly callbacks: CompanionCallbacks, activity?: ActivityTracker) {
     this.analyzer = new Analyzer(
@@ -70,6 +76,7 @@ export class Companion implements vscode.Disposable {
         isEnabled: () => this.isEnabled(),
         onDebug: callbacks.onDebug ? (event, data) => callbacks.onDebug!(event, data) : undefined,
         onUsage: callbacks.onUsage ? (usage) => callbacks.onUsage!(usage) : undefined,
+        nextTurnId: () => this.nextWatchId(),
       },
       this.analyzer,
       activity,
@@ -147,11 +154,13 @@ export class Companion implements vscode.Disposable {
       },
       { busyRetryMs: this.debounceMs(), settleRetryMs: this.quickTriggerMs() },
     );
+    const turnId = decision.verdict === 'speak' ? this.nextWatchId() : undefined;
     this.callbacks.onDebug?.('decision', {
       file: vscode.workspace.asRelativePath(editor.document.uri),
       verdict: decision.verdict,
       reason: decision.reason,
       retryMs: decision.retryMs,
+      turnId,
       summary: `decision: ${decision.verdict} (${decision.reason})`,
     });
 
@@ -166,7 +175,7 @@ export class Companion implements vscode.Disposable {
       return;
     }
     this.retryCount = 0;
-    await this.analyzer.analyze(editor.document, `Analyzing ${vscode.workspace.asRelativePath(editor.document.uri)}…`);
+    await this.analyzer.analyze(editor.document, `Analyzing ${vscode.workspace.asRelativePath(editor.document.uri)}…`, undefined, { turnId });
   }
 
   // 聊天 Agent 写完文件后的复审：跳过语义闸门，直接分析被修改的文件。
@@ -181,6 +190,8 @@ export class Companion implements vscode.Disposable {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
+    // 一轮复审（最多 MAX_REVIEW_FILES 个文件）共用一个 watch-N：它们源于同一次 Agent 写盘
+    const turnId = this.nextWatchId();
     for (const abs of absolutePaths.slice(0, MAX_REVIEW_FILES)) {
       try {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
@@ -189,7 +200,7 @@ export class Companion implements vscode.Disposable {
           doc,
           `Reviewing agent change in ${rel}…`,
           'Note: this file was just modified by the AI agent to address earlier feedback. Verify the change: does it actually address the feedback? Did it introduce new problems (broken references, inconsistent style, incomplete edits)? Only report issues related to this change — do NOT re-audit untouched parts of the file.',
-          { bypassCooldown: true } // 复审不受冷却限制：Agent 刚改完，需要立刻看
+          { bypassCooldown: true, turnId } // 复审不受冷却限制：Agent 刚改完，需要立刻看
         );
         results.push({ file: rel, suggestions });
       } catch {
@@ -232,6 +243,7 @@ export class Companion implements vscode.Disposable {
     const suggestions = await this.analyzer.analyze(doc, `Analyzing ${rel} (requested in chat)…`, undefined, {
       bypassCooldown: true,
       force: true,
+      turnId: this.nextWatchId(),
     });
     if (suggestions === null) {
       return '分析没有运行（缺少 API key 或请求被中止）。';
@@ -261,7 +273,7 @@ export class Companion implements vscode.Disposable {
       editor.document,
       `Manually analyzing ${vscode.workspace.asRelativePath(editor.document.uri)}…`,
       undefined,
-      { bypassCooldown: true, force: true } // 内容没变也分析（测试 prompt/链路时需要）
+      { bypassCooldown: true, force: true, turnId: this.nextWatchId() } // 内容没变也分析（测试 prompt/链路时需要）
     );
   }
 
@@ -281,7 +293,7 @@ export class Companion implements vscode.Disposable {
         doc,
         `Verifying fix in ${rel}…`,
         `The user says they just manually fixed this issue: [L${s.level}] line ${s.line ?? '?'} "${s.title}" — ${s.detail}. Verify honestly: if it is actually fixed, do NOT report it again; only report problems that still exist or are newly introduced.`,
-        { bypassCooldown: true } // 用户在回应我们的建议，这是最值得立刻反馈的时刻，不受冷却限制
+        { bypassCooldown: true, turnId: this.nextWatchId() } // 用户在回应我们的建议，这是最值得立刻反馈的时刻，不受冷却限制
       );
       return { status: 'reviewed', suggestions: suggestions ?? [] };
     } catch {

@@ -36,6 +36,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private abortWaiters: Array<() => void> = [];
   private lastActivity = '';
   private runBuffer = '';
+  private reasoningBuffer = '';
+  // 一次 handleSend/runAgent 运行 = 一个 chat-N，把这轮的 思考/工具/审批/回答 圈成一个闭环
+  private turnCounter = 0;
+  private currentTurnId = '';
 
   // Agent 跑完且期间写过文件时触发（交给守望模式复审）
   onFilesWritten?: (absolutePaths: string[]) => void;
@@ -65,6 +69,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.history = saved;
     }
     this.usage.onChange = () => this.postUsage();
+    // Activity 视图的实时推送：logger 是唯一事件源，面板只是订阅者
+    this.logger.onEvent((entry) => this.post({ type: 'activityEvent', entry }));
   }
 
   // 工具栏小计数：本次会话 + 累计（按来源细分放 tooltip）
@@ -228,11 +234,11 @@ ${summary}`;
       mode === 'yolo'
         ? (action, detail) => {
             // yolo 自动放行，但每次操作都记 transcript，可审计
-            this.logger.event('approval', { action, detail: detail.slice(0, 500), decision: 'auto (yolo)', summary: `approval auto-granted (yolo): ${action}` });
+            this.logger.event('approval', { turnId: this.currentTurnId, action, detail: detail.slice(0, 500), decision: 'auto (yolo)', summary: `approval auto-granted (yolo): ${action}` });
             return Promise.resolve(true);
           }
         : (action, detail) => {
-            this.logger.event('approval', { action, detail: detail.slice(0, 500), summary: `approval requested: ${action}` });
+            this.logger.event('approval', { turnId: this.currentTurnId, action, detail: detail.slice(0, 500), summary: `approval requested: ${action}` });
             return this.requestApproval(action, detail);
           };
     return ctx;
@@ -450,7 +456,7 @@ ${serialized}`,
           const resolve = this.pendingApprovals.get(msg.id);
           this.pendingApprovals.delete(msg.id);
           resolve?.(!!msg.approved);
-          this.logger.event('approval', { approved: !!msg.approved });
+          this.logger.event('approval', { turnId: this.currentTurnId, approved: !!msg.approved });
         }
         break;
       }
@@ -523,6 +529,10 @@ ${serialized}`,
       case 'openLogs':
         await vscode.commands.executeCommand('vs-agent.openLogs');
         break;
+      // Activity 视图打开时拉全量（之后的增量走 activityEvent 实时推送）
+      case 'getActivityLog':
+        this.post({ type: 'activityLog', entries: this.logger.recent() });
+        break;
       case 'initProject':
         await this.initProject();
         break;
@@ -569,7 +579,16 @@ ${serialized}`,
     this.writtenFiles = [];
     this.lastActivity = '';
     this.runBuffer = '';
-    this.logger.event('user', { text, summary: `user: ${text.slice(0, 200)}` });
+    this.reasoningBuffer = '';
+    const turnId = `chat-${++this.turnCounter}`;
+    this.currentTurnId = turnId;
+    this.logger.event('user', {
+      text,
+      turnId,
+      learningMode: learningMode(),
+      permissionMode: this.permissionMode(),
+      summary: `user: ${text.slice(0, 200)}`,
+    });
     // 首次运行时建立记忆文件模板，用户能看到「伙伴记了什么」
     if (!(await memoryStore.read()).trim()) {
       await memoryStore.write(MEMORY_TEMPLATE).catch(() => undefined);
@@ -585,21 +604,32 @@ ${serialized}`,
           this.runBuffer += t;
           this.post({ type: 'token', text: t });
         },
+        onReasoning: (t) => {
+          this.reasoningBuffer += t;
+          this.post({ type: 'reasoning', text: t });
+        },
         onToolStart: (name, args) => {
           this.lastActivity = `Calling ${name}`;
-          this.logger.event('tool_call', { name, args: args.slice(0, 1000), summary: `tool → ${name}` });
+          this.logger.event('tool_call', { turnId, name, args: args.slice(0, 1000), summary: `tool → ${name}` });
           this.post({ type: 'toolStart', name, args });
         },
         onToolResult: (name, result) => {
-          this.logger.event('tool_result', { name, result: result.slice(0, 2000), summary: `tool ✔ ${name}` });
+          this.logger.event('tool_result', { turnId, name, result: result.slice(0, 2000), summary: `tool ✔ ${name}` });
           this.post({ type: 'toolResult', name, result });
         },
         onDone: () => {
-          this.logger.event('assistant', { text: this.runBuffer, summary: `assistant: ${this.runBuffer.slice(0, 200)}` });
+          if (this.reasoningBuffer.trim()) {
+            this.logger.event('reasoning', { turnId, text: this.reasoningBuffer, summary: `reasoning: ${this.reasoningBuffer.slice(0, 200)}` });
+          }
+          this.logger.event('assistant', { turnId, text: this.runBuffer, summary: `assistant: ${this.runBuffer.slice(0, 200)}` });
           this.post({ type: 'done' });
         },
         onAborted: () => {
+          if (this.reasoningBuffer.trim()) {
+            this.logger.event('reasoning', { turnId, text: this.reasoningBuffer, aborted: true, summary: `reasoning (aborted): ${this.reasoningBuffer.slice(0, 200)}` });
+          }
           this.logger.event('interrupt', {
+            turnId,
             activity: this.lastActivity,
             partial: this.runBuffer.slice(0, 500),
             summary: `interrupted while: ${this.lastActivity || 'thinking'}`,
@@ -616,6 +646,7 @@ ${serialized}`,
         onUsage: (u) => {
           this.usage.add('chat', u);
           this.logger.event('usage', {
+            turnId,
             source: 'chat',
             prompt: u.promptTokens,
             completion: u.completionTokens,
@@ -664,7 +695,7 @@ ${serialized}`,
     <span id="usage-stats" title="Token usage"></span>
     <button id="init-btn" title="Initialize project memory: let the AI explore the project and write it into .vs-agent/memory.md">Init</button>
     <button id="analyze-btn" title="Analyze the current file now (skips debounce/cooldown/dedup, for testing)">Analyze</button>
-    <button id="logs-btn" title="Open debug logs / session transcript">Logs</button>
+    <button id="logs-btn" title="Activity view: the unified event stream (chat turns, watch decisions, metrics) with track filters">Activity</button>
     <button id="clear-btn" title="Clear conversation">Clear</button>
   </div>
   <div id="settings-view" class="hidden">
@@ -731,6 +762,21 @@ ${serialized}`,
       <button id="settings-cancel">Cancel</button>
       <span id="settings-status"></span>
     </div>
+  </div>
+  <div id="activity-view" class="hidden">
+    <div id="activity-header">
+      <h3>Activity</h3>
+      <button id="activity-open-logs" title="Open the full JSONL transcript / Output panel / log folder">Logs…</button>
+      <button id="activity-close" title="Back to chat">Close</button>
+    </div>
+    <div id="activity-filters">
+      <button class="chip active" data-track="all">All</button>
+      <button class="chip" data-track="chat">Chat</button>
+      <button class="chip" data-track="watch">Watch</button>
+      <button class="chip" data-track="metrics">Metrics</button>
+      <button class="chip" data-track="system">System</button>
+    </div>
+    <div id="activity-list"></div>
   </div>
   <div id="messages"></div>
   <div id="quote-chip" class="hidden"></div>
