@@ -3,8 +3,9 @@
  *
  * 本文件只负责「什么时候分析、分析谁」：编辑/切换编辑器事件监听、调度（debounce）、
  * 以及各公开入口（手动触发 / 聊天请求 / 复审 / 确认修复）。
- * 具体实现拆在三个模块里：
- * - gate.ts      语义闸门（纯函数）：编辑分类决定等待时长 + 括号配对/光标边界检测
+ * 具体实现拆在四个模块里：
+ * - decision.ts  开口决策层（纯函数）：「现在该不该开口」的唯一权威，输出 speak/delay/suppress 三值判定
+ * - gate.ts      语义闸门（纯函数）：编辑分类决定等待时长 + 括号配对/光标边界检测（决策层的信号源）
  * - analyzer.ts  分析管线：一次深度分析的完整过程（含 hash 去重、冷却、工具取证循环）
  * - triage.ts    保存分诊「速记员」：用户保存时用极小调用判断值不值得叫醒分析
  *
@@ -19,6 +20,7 @@ import { ActivityTracker } from './activity';
 import { Analyzer } from './analyzer';
 import { SaveTriage } from './triage';
 import { classifyDelay, isSemanticallySettled } from './gate';
+import { decideSpeak } from './decision';
 
 const MAX_REVIEW_FILES = 3;
 
@@ -122,32 +124,48 @@ export class Companion implements vscode.Disposable {
     return Math.max(1, seconds) * 1000;
   }
 
+  private static readonly MAX_SETTLE_RETRIES = 3;
+
   private async analyzeActive(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.uri.scheme !== 'file' || !this.isEnabled()) {
-      return;
-    }
-    if (this.callbacks.isBusy()) {
-      this.callbacks.onDebug?.('gate', { result: 'chat-busy-reschedule' });
-      this.schedule();
+    if (!editor || editor.document.uri.scheme !== 'file') {
       return;
     }
 
-    // 语义完备性闸门：用户还停在半个表达式里时不开口，3 秒后再看，最多重试 3 次
-    if (!isSemanticallySettled(editor)) {
-      this.callbacks.onDebug?.('gate', {
-        result: this.retryCount < 3 ? 'not-settled-retry' : 'not-settled-giveup',
-        retry: this.retryCount,
-      });
-      if (this.retryCount < 3) {
+    // 开口决策（decision.ts 是唯一权威）：所有「现在该不该开口」的判断汇成一次结构化判定，
+    // 每次判定落 transcript（phase: 'decision'），攒时机评测/个性化的数据底子
+    const settled = isSemanticallySettled(editor);
+    const decision = decideSpeak(
+      {
+        enabled: this.isEnabled(),
+        chatBusy: this.callbacks.isBusy(),
+        contentChanged: this.analyzer.hasUnanalyzedChanges(editor.document),
+        settled,
+        settleRetries: this.retryCount,
+        maxSettleRetries: Companion.MAX_SETTLE_RETRIES,
+        cooldownWaitMs: this.analyzer.cooldownWaitMs(),
+      },
+      { busyRetryMs: this.debounceMs(), settleRetryMs: this.quickTriggerMs() },
+    );
+    this.callbacks.onDebug?.('decision', {
+      file: vscode.workspace.asRelativePath(editor.document.uri),
+      verdict: decision.verdict,
+      reason: decision.reason,
+      retryMs: decision.retryMs,
+      summary: `decision: ${decision.verdict} (${decision.reason})`,
+    });
+
+    if (decision.verdict === 'delay') {
+      if (decision.reason === 'not-settled') {
         this.retryCount++;
-        this.schedule(this.quickTriggerMs());
       }
+      this.schedule(decision.retryMs);
+      return;
+    }
+    if (decision.verdict === 'suppress') {
       return;
     }
     this.retryCount = 0;
-    this.callbacks.onDebug?.('gate', { result: 'settled' });
-
     await this.analyzer.analyze(editor.document, `Analyzing ${vscode.workspace.asRelativePath(editor.document.uri)}…`);
   }
 

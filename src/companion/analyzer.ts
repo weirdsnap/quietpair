@@ -98,6 +98,11 @@ export class Analyzer {
     return Math.max(10, seconds) * 1000;
   }
 
+  /** 距冷却结束还剩多少毫秒（<= 0 表示不在冷却期）；给开口决策层（decision.ts）用 */
+  cooldownWaitMs(): number {
+    return this.cooldownMs() - (Date.now() - this.lastAnalysisAt);
+  }
+
   private hash(text: string): number {
     let h = 5381;
     for (let i = 0; i < text.length; i++) {
