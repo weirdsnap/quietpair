@@ -18,6 +18,7 @@ export interface Suggestion {
   fix?: string;
   reflect?: string; // 元认知提问：帮用户以后更早自己发现这类问题
   pending?: boolean; // 待确认：用户编辑过该文件，AI 还没确认新内容
+  shownAt?: number; // 展示时刻（埋点用：算「距展示多久用户做了什么」）
 }
 
 export const LEVEL_LABEL: Record<SuggestionLevel, string> = {
@@ -79,9 +80,18 @@ export class AnnotationManager implements vscode.Disposable {
   }
 
   set(uri: vscode.Uri, items: Suggestion[]): void {
+    const now = Date.now();
+    for (const s of items) {
+      s.shownAt = now; // 埋点：展示时刻，用于算「距展示多久用户做了什么」
+    }
     this.suggestions.set(uri.toString(), items);
     this.refresh(uri);
     this.changeEmitter.fire();
+  }
+
+  /** 当前挂着的建议数（埋点用：编辑使标注变待确认时记批量大小） */
+  count(uri: vscode.Uri): number {
+    return this.suggestions.get(uri.toString())?.length ?? 0;
   }
 
   clear(uri: vscode.Uri): void {

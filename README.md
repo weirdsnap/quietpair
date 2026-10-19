@@ -150,7 +150,8 @@ vs_agent/
 | `user` / `assistant` | 用户消息、AI 完整回答（含被打断的半成品） |
 | `tool_call` / `tool_result` | 工具名、参数、结果（截断保护） |
 | `approval` | 审批请求内容 + 用户批准/拒绝的决定 |
-| `companion` | 守望全链路：触发原因（`deletion`/`paste`/`statement-boundary`/`typing`）与延迟、语义闸门判定（`settled`/`retry`/`giveup`/`chat-busy`）、冷却闸门（`cooldown` + 等待时长）、哈希去重跳过、分析中自主取证的工具调用、分析结果（建议数、级别、明细） |
+| `companion` | 守望全链路：触发原因（`deletion`/`paste`/`statement-boundary`/`typing`）与延迟、开口决策（`phase: 'decision'`，三值判定 `speak`/`delay`/`suppress` + 理由）、哈希去重跳过、分析中自主取证的工具调用、分析结果（建议数、级别、明细） |
+| `metric` | 埋点事件（schema 集中在 `src/core/telemetry.ts`）：建议生命周期 `suggestion_shown`/`viewed`/`fix_revealed`/`deepen_clicked`/`adopted`/`rejected`/`confirm_unchanged`/`discussed`/`stale`、模式切换 `mode_switched`——接受率漏斗、泄题率、时机分析的原始数据 |
 | `usage` | 每次 LLM 调用的 token 用量（来源 `chat`/`companion`/`compact`，输入/输出分开计） |
 | `interrupt` | 打断时刻正在做什么、说到了哪 |
 | `error` | API 错误等异常 |

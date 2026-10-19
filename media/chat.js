@@ -446,6 +446,8 @@
         reveal.textContent = '直接给方案';
         reveal.title = 'Reveal the suggested fix (local, no LLM call)';
         reveal.addEventListener('click', function () {
+          // 本地动作不产生 LLM 调用，埋点必须主动回传，否则 transcript 里看不到这次「投降」
+          vscode.postMessage({ type: 'uiEvent', name: 'fix_revealed', uriStr: m.uriStr, index: m.index });
           fixDiv.classList.remove('hidden');
           reveal.remove();
           scrollToBottom();

@@ -16,6 +16,7 @@ import { Logger } from '../core/logger';
 import { UsageTracker } from '../core/usage';
 import { memoryStore, MEMORY_TEMPLATE } from '../memory/store';
 import type { Suggestion } from '../companion/annotations';
+import type { Telemetry } from '../core/telemetry';
 
 const HISTORY_KEY = 'vsAgent.history';
 const HISTORY_PERSIST_LIMIT = 150;
@@ -48,11 +49,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // 建议卡片的按需深化（展开说说 / 给个例子），由装配层接到一次性的 deepen LLM 调用
   onDeepenSuggestion?: (uriStr: string, index: number, kind: 'explain' | 'example') => void;
 
+  // 前端本地动作的埋点回传（如 fix_revealed：本地拉开藏起的 fix，不产生 LLM 调用，必须主动上报）
+  onUiEvent?: (name: string, data: Record<string, unknown>) => void;
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly sharedContext: SharedContext,
     private readonly logger: Logger,
-    private readonly usage: UsageTracker
+    private readonly usage: UsageTracker,
+    private readonly telemetry?: Telemetry
   ) {
     // 单会话：一个项目一条持续线程，重开 VS Code 接着聊
     const saved = context.workspaceState.get<ChatMessage[]>(HISTORY_KEY);
@@ -358,7 +363,11 @@ ${serialized}`,
     await cfg.update('companion.cooldownSeconds', Math.max(10, Number(s.cooldownSeconds) || 300), vscode.ConfigurationTarget.Global);
     const lang = String(s.responseLanguage) === 'en' ? 'en' : 'zh';
     await cfg.update('responseLanguage', lang, vscode.ConfigurationTarget.Global);
+    const prevLearning = learningMode();
     await cfg.update('learningMode', !!s.learningMode, vscode.ConfigurationTarget.Global);
+    if (!!s.learningMode !== prevLearning) {
+      this.telemetry?.modeSwitched(!!s.learningMode, 'settings');
+    }
     const key = String(s.apiKey ?? '').trim();
     if (key) {
       await this.context.secrets.store(API_KEY_SECRET, key);
@@ -428,6 +437,7 @@ ${serialized}`,
     uriStr?: string;
     index?: number;
     kind?: string;
+    name?: string;
   }): Promise<void> {
     switch (msg.type) {
       case 'send':
@@ -484,13 +494,20 @@ ${serialized}`,
         break;
       }
       case 'toggleLearning': {
+        const next = !learningMode();
         await vscode.workspace
           .getConfiguration('vsAgent')
-          .update('learningMode', !learningMode(), vscode.ConfigurationTarget.Global);
+          .update('learningMode', next, vscode.ConfigurationTarget.Global);
+        this.telemetry?.modeSwitched(next, 'quick-toggle');
         // 快切走全局设置，按钮状态经 sendSettings 回推同步（设置页保存也走同一条路）
         await this.sendSettings();
         break;
       }
+      case 'uiEvent':
+        if (typeof msg.name === 'string') {
+          this.onUiEvent?.(msg.name, msg);
+        }
+        break;
       case 'deepenSuggestion': {
         const kind = msg.kind === 'example' ? 'example' : 'explain';
         if (typeof msg.uriStr === 'string' && typeof msg.index === 'number') {

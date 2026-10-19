@@ -14,6 +14,7 @@ export type LogKind =
   | 'tool_result'
   | 'approval'
   | 'companion'
+  | 'metric'
   | 'usage'
   | 'interrupt'
   | 'error';

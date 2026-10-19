@@ -16,6 +16,8 @@ src/
 │   │                       + 学习模式开关（vsAgent.learningMode）
 │   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、tool_calls 累积、AbortSignal、usage 回收
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
+│   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换事件，
+│   │                       全走 logger 落 transcript（kind: metric）——评测/个性化的数据底子
 │   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘
 │
 ├── agent/                  聊天 Agent

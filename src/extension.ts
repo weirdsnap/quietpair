@@ -11,9 +11,10 @@ import { ActivityTracker } from './companion/activity';
 import { SharedContext } from './memory/sharedContext';
 import { Logger } from './core/logger';
 import { UsageTracker } from './core/usage';
-import { getApiKey, promptForApiKey, getConfig, languageDirective } from './core/config';
+import { getApiKey, promptForApiKey, getConfig, languageDirective, learningMode } from './core/config';
 import { chatCompletion } from './core/llm';
 import { deepenPrompt, DeepenKind } from './agent/prompts';
+import { Telemetry } from './core/telemetry';
 
 function formatSummary(items: Suggestion[]): string {
   return items
@@ -27,11 +28,25 @@ function formatSummary(items: Suggestion[]): string {
 export function activate(context: vscode.ExtensionContext) {
   const logger = new Logger(context);
   const usage = new UsageTracker(context);
+  const telemetry = new Telemetry(logger);
   const sharedContext = new SharedContext();
-  const chatProvider = new ChatViewProvider(context, sharedContext, logger, usage);
+  const chatProvider = new ChatViewProvider(context, sharedContext, logger, usage, telemetry);
   const annotations = new AnnotationManager();
   const activity = new ActivityTracker();
   chatProvider.onFileWrittenLive = (abs) => activity.markAgentWrite(abs);
+
+  // 埋点快照的统一口径：masked = 学习模式且非 L3 的 fix 被藏起（与 chatView 卡片逻辑一致）
+  const snapOpts = (s: Suggestion) => ({ masked: learningMode() && s.level !== 3 && !!s.fix, learningMode: learningMode() });
+
+  // 前端本地动作（不产生 LLM 调用）的埋点回传
+  chatProvider.onUiEvent = (name, data) => {
+    if (name === 'fix_revealed' && typeof data.uriStr === 'string' && typeof data.index === 'number') {
+      const s = annotations.get(data.uriStr, data.index);
+      if (s) {
+        telemetry.fixRevealed(s, vscode.workspace.asRelativePath(vscode.Uri.parse(data.uriStr)), snapOpts(s));
+      }
+    }
+  };
 
   // L3 打断：弹通知 + 自动在面板展开详情
   function notifyInterrupts(uri: vscode.Uri, items: Suggestion[]): void {
@@ -42,6 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
     const first = l3[0];
     const file = vscode.workspace.asRelativePath(uri);
     sharedContext.markViewed(file, first.line); // L3 自动展开 = 用户正在看这条
+    telemetry.suggestionViewed(first, file, 'l3-auto', snapOpts(first));
     void vscode.window.showWarningMessage(
       `QuietPair: ${file}${first.line ? `:${first.line}` : ''} — ${first.title}${l3.length > 1 ? ` (${l3.length} critical issues)` : ''}`
     );
@@ -73,6 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
       annotations.set(uri, suggestions);
       if (suggestions.length > 0) {
         sharedContext.addSuggestions(file, suggestions);
+        telemetry.suggestionShown(file, suggestions, learningMode());
         chatProvider.suggestionEnd(id, file, formatSummary(suggestions));
         notifyInterrupts(uri, suggestions);
       } else if (rawText) {
@@ -81,7 +98,10 @@ export function activate(context: vscode.ExtensionContext) {
         chatProvider.suggestionEnd(id, file, null);
       }
     },
-    onInvalidate: (uri) => annotations.markPending(uri), // 编辑后标注降级为待确认，等新分析或用户点「✓ 改好了」
+    onInvalidate: (uri) => {
+      telemetry.suggestionStale(vscode.workspace.asRelativePath(uri), annotations.count(uri));
+      annotations.markPending(uri); // 编辑后标注降级为待确认，等新分析或用户点「✓ 改好了」
+    },
     onNotice: (message) => chatProvider.notice(message),
     onDebug: (event, data) => logger.event('companion', { phase: event, ...data }),
     onUsage: (u) => {
@@ -111,6 +131,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
     const uri = vscode.Uri.parse(uriStr);
     const file = vscode.workspace.asRelativePath(uri);
+    telemetry.deepenClicked(s, file, kind, snapOpts(s));
     logger.event('companion', { phase: 'deepen', file, kind, summary: `deepen (${kind}): ${s.title}` });
     try {
       // 上下文给建议行 ±40 行的窗口，够理解又不必整文件
@@ -238,6 +259,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
       sharedContext.markViewed(file, s.line); // 用户点开了这条 = 后续模糊提问大概率指它
+      telemetry.suggestionViewed(s, file, 'codelens', snapOpts(s));
       chatProvider.showSuggestionCard(
         s,
         `${levelIcon(s.level)} L${s.level} ${LEVEL_LABEL[s.level]} · ${file}${s.line ? `:${s.line}` : ''} — ${s.title}`,
@@ -252,6 +274,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
       reviewRounds = 0; // 新的修复任务开始，重置复审来回计数
+      telemetry.suggestionAdopted(s, file, 'fix-for-me', snapOpts(s));
       await chatProvider.askAgent(
         `请把以下建议应用到 ${file}${s.line ? ` 第 ${s.line} 行附近` : ''}：\n\n【${s.title}】\n${s.detail}${s.fix ? `\n\n参考修复：\n${s.fix}` : ''}\n\n先用 read_file 确认现状，再用 write_file 修改。`
       );
@@ -263,7 +286,8 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const uri = vscode.Uri.parse(uriStr);
-      sharedContext.markViewed(vscode.workspace.asRelativePath(uri), s.line);
+      const relFile = vscode.workspace.asRelativePath(uri);
+      sharedContext.markViewed(relFile, s.line);
       logger.event('lifecycle', { summary: `confirm fix requested: ${s.title}` });
       const result = await companion.confirmFix(uri.fsPath, s);
 
@@ -275,6 +299,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (result.status === 'unchanged') {
         // 当前代码就是最新分析过的版本：这条标注本身就是最新判断，无需再调 LLM
         logger.event('lifecycle', { summary: `confirm rejected (already analyzed, still flagged): ${s.title}` });
+        telemetry.confirmUnchanged(s, relFile, snapOpts(s));
         chatProvider.note(
           '🔍 This is already the latest verdict on the current code',
           `"${s.title}" — you have not changed the code (or this version was just analyzed); the issue still stands.\n${s.detail}\n\nWant me to fix it: hit Fix for me above the line. Think I am wrong: hit Discuss and let's hash it out.`
@@ -286,9 +311,11 @@ export function activate(context: vscode.ExtensionContext) {
       const remaining = result.suggestions.filter((x) => x.line && s.line && Math.abs(x.line - s.line) <= 3 && x.level >= s.level);
       if (remaining.length === 0) {
         logger.event('lifecycle', { summary: `fix verified: ${s.title}` });
+        telemetry.suggestionAdopted(s, relFile, 'confirm-verified', snapOpts(s));
         chatProvider.note('✓ Fix confirmed', `"${s.title}" is clean now.`);
       } else {
         logger.event('lifecycle', { summary: `fix rejected: ${s.title}, ${remaining.length} issues remain` });
+        telemetry.suggestionRejected(s, relFile, remaining.length, snapOpts(s));
         chatProvider.note(
           `🔄 Review: the issue may still be there`,
           remaining.map((x) => `L${x.level} line ${x.line} — ${x.title}\n${x.detail}`).join('\n\n')
@@ -303,6 +330,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
       sharedContext.markViewed(file, s.line);
+      telemetry.suggestionDiscussed(s, file, snapOpts(s));
       chatProvider.discussSuggestion(
         `${levelIcon(s.level)} L${s.level} ${LEVEL_LABEL[s.level]} · ${file}${s.line ? `:${s.line}` : ''} — ${s.title}`,
         `${s.detail}${s.fix ? `\n\nSuggested fix:\n${s.fix}` : ''}`
