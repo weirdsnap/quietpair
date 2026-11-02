@@ -40,6 +40,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // 一次 handleSend/runAgent 运行 = 一个 chat-N，把这轮的 思考/工具/审批/回答 圈成一个闭环
   private turnCounter = 0;
   private currentTurnId = '';
+  // init 流程重入守卫（选项卡等待回答期间也算 in-flight）
+  private initInFlight = false;
 
   // Agent 跑完且期间写过文件时触发（交给守望模式复审）
   onFilesWritten?: (absolutePaths: string[]) => void;
@@ -146,25 +148,57 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // 带我读一遍（引导式，用户自己读懂项目）/ 帮我总结（agent 代读）/ 我已熟悉（跳过）。
   // 复用正常对话流程，用户能看到探索过程、可以打断，完成后这轮对话也留在历史里
   async initProject(): Promise<void> {
-    this.view?.show(true);
-    this.logger.event('lifecycle', { summary: 'init project memory requested' });
-
-    const answer = await this.requestChoice('How would you like to start?', [
-      { label: 'Guide me through it', description: 'I give you a reading map and accompany you stop by stop — you build the mental model yourself (recommended)' },
-      { label: 'Summarize for me', description: 'I explore the project and write the overview into project memory' },
-      { label: 'I know it already', description: 'Skip initialization and start right away' },
-    ]);
-    this.logger.event('lifecycle', { summary: `init mode chosen: ${answer.slice(0, 100)}` });
-
-    if (answer.startsWith('C.') || answer.includes('未做选择')) {
-      this.note('Initialization skipped', 'Click "Init" anytime to start over, or just start chatting.');
+    // 连点守卫：选项卡挂着或 init 正在跑时再点，多张选项卡/多条流程就乱套了
+    if (this.initInFlight) {
+      this.note('Init already in progress', 'Answer the open choice card, or interrupt the current run first.');
       return;
     }
-    // 自定义输入视为对所选剧本的补充说明，拼在剧本前面
-    const isPreset = answer.startsWith('A.') || answer.startsWith('B.');
-    const supplement = isPreset ? '' : `补充说明（用户）：${answer}\n\n`;
-    const script = answer.startsWith('B.') ? INIT_PROMPT : GUIDE_PROMPT;
-    await this.handleSend(supplement + script);
+    this.view?.show(true);
+    this.logger.event('lifecycle', { summary: 'init project memory requested' });
+    this.initInFlight = true;
+    try {
+      // 已有实质记忆 = 不是第一次：选项语义从「怎么开始」变成「要不要刷新」，避免一声不吭重来一遍
+      const hasMemory = await this.hasProjectMemory();
+      const answer = await this.requestChoice(
+        hasMemory ? 'Project memory already exists (.vs-agent/memory.md). What would you like to do?' : 'How would you like to start?',
+        hasMemory
+          ? [
+              { label: 'Refresh project memory', description: 'I re-scan the project and update memory.md; your manual edits stay' },
+              { label: 'Guide me through it again', description: 'Reading map and accompanied stops, same as the first run' },
+              { label: 'Cancel', description: 'Leave the memory as it is' },
+            ]
+          : [
+              { label: 'Guide me through it', description: 'I give you a reading map and accompany you stop by stop — you build the mental model yourself (recommended)' },
+              { label: 'Summarize for me', description: 'I explore the project and write the overview into project memory' },
+              { label: 'I know it already', description: 'Skip initialization and start right away' },
+            ]
+      );
+      this.logger.event('lifecycle', { summary: `init mode chosen: ${answer.slice(0, 100)}` });
+
+      if (answer.startsWith('C.') || answer.includes('未做选择')) {
+        this.note('Initialization skipped', 'Click "Init" anytime to start over, or just start chatting.');
+        return;
+      }
+      // 自定义输入视为对所选剧本的补充说明，拼在剧本前面（默认走引导式）
+      const isPreset = answer.startsWith('A.') || answer.startsWith('B.');
+      const supplement = isPreset ? '' : `补充说明（用户）：${answer}\n\n`;
+      const script = hasMemory
+        ? answer.startsWith('A.')
+          ? INIT_PROMPT
+          : GUIDE_PROMPT
+        : answer.startsWith('B.')
+          ? INIT_PROMPT
+          : GUIDE_PROMPT;
+      await this.handleSend(supplement + script);
+    } finally {
+      this.initInFlight = false;
+    }
+  }
+
+  // 已初始化 = memory.md 有超出空模板的实质内容（模板本身在首次对话时自动创建，不算）
+  private async hasProjectMemory(): Promise<boolean> {
+    const content = (await memoryStore.read()).trim();
+    return content.length > 0 && content !== MEMORY_TEMPLATE.trim();
   }
 
   suggestionStart(id: string, file: string, label?: string): void {

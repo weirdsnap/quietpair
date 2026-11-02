@@ -256,6 +256,8 @@
     sendBtn.textContent = busy ? '■' : '➤';
     sendBtn.title = busy ? 'Stop' : 'Send';
     sendBtn.classList.toggle('stopping', busy);
+    // 运行中点 Init 会意外打断当前任务，直接禁用；打断插话走输入框
+    document.getElementById('init-btn').disabled = busy;
     input.disabled = false;
     if (!busy) {
       input.focus();

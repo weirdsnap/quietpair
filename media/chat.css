@@ -67,6 +67,13 @@ body {
   color: var(--vscode-foreground);
 }
 
+#topbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+}
+
 #usage-stats {
   margin-left: auto;
   align-self: center;
