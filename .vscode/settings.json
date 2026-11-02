@@ -1,0 +1,6 @@
+{
+  // F5 调试时关闭 js-debug 的网络监视：Node inspector 处理流式响应（SSE/chunked）
+  // 会抛 "Missing dataLength in event"（Node 已知 bug），重时把扩展宿主打成 SIGABRT。
+  // 我们的 LLM 调用全是流式 fetch，开着它 F5 开发宿主会随机闪退。
+  "debug.javascript.enableNetworkView": false
+}
