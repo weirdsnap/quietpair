@@ -95,7 +95,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage((msg) => this.handleMessage(msg));
   }
 
-  clear(): void {
+  // 清空会话：破坏性操作，先确认；运行中的任务一并打断——否则 Agent 拿着旧 history
+  // 引用继续跑，跑完往已清空的面板里写气泡（幽灵运行）
+  async clear(): Promise<void> {
+    const pick = await vscode.window.showWarningMessage('Clear the conversation history?', { modal: true }, 'Clear');
+    if (pick !== 'Clear') {
+      return;
+    }
+    this.stopRun();
+    // 等被打断的任务收尾（它会发 interrupted/done 消息），再清面板，顺序错了会有幽灵气泡
+    if (this.running) {
+      await new Promise<void>((resolve) => this.abortWaiters.push(resolve));
+    }
     this.history = [{ role: 'system', content: SYSTEM_PROMPT }];
     void this.context.workspaceState.update(HISTORY_KEY, undefined);
     this.post({ type: 'cleared' });
@@ -505,7 +516,7 @@ ${serialized}`,
         break;
       }
       case 'clear':
-        this.clear();
+        await this.clear();
         break;
       case 'stop':
         this.stopRun();

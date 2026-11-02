@@ -528,6 +528,7 @@
     settingsOpen = open === undefined ? !settingsOpen : open;
     settingsView.classList.toggle('hidden', !settingsOpen);
     if (settingsOpen) {
+      toggleActivity(false); // 与 Activity overlay 互斥，不叠着开
       settingsStatus.textContent = '';
       vscode.postMessage({ type: 'getSettings' });
     }
@@ -599,6 +600,7 @@
     activityOpen = open === undefined ? !activityOpen : open;
     activityView.classList.toggle('hidden', !activityOpen);
     if (activityOpen) {
+      toggleSettings(false); // 与 Settings overlay 互斥
       vscode.postMessage({ type: 'getActivityLog' });
     }
   }

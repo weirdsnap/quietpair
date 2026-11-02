@@ -269,6 +269,11 @@ export class Companion implements vscode.Disposable {
       this.callbacks.onNotice('聊天 Agent 正在运行，等它结束再手动分析。');
       return;
     }
+    // 分析在飞时再点：自动链路的单飞是「新内容来了重跑」，手动连点只是白烧 token，拦下
+    if (this.analyzer.isAnalyzing) {
+      this.callbacks.onNotice('Analysis already running — wait for it to finish.');
+      return;
+    }
     await this.analyzer.analyze(
       editor.document,
       `Manually analyzing ${vscode.workspace.asRelativePath(editor.document.uri)}…`,

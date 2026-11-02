@@ -75,8 +75,14 @@ export class Analyzer {
   private lastHash = new Map<string, number>();
   private lastAnalysisAt = 0;
   private controller: AbortController | undefined;
+  // 真正在跑 LLM 分析（单飞语义下，手动入口应拦重击而不是 abort 重跑白烧 token）
+  private inFlight = false;
   private counter = 0;
   private keyWarned = false;
+
+  get isAnalyzing(): boolean {
+    return this.inFlight;
+  }
 
   constructor(private readonly deps: AnalyzerDeps, private readonly activity?: ActivityTracker) {}
 
@@ -154,6 +160,7 @@ export class Analyzer {
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
+    this.inFlight = true;
     this.lastAnalysisAt = Date.now(); // 从发起请求开始计冷却，失败也计，避免报错时连环重试
 
     const relPath = vscode.workspace.asRelativePath(doc.uri);
@@ -274,6 +281,8 @@ ${content}
         this.deps.onNotice(`Companion analysis failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       return [];
+    } finally {
+      this.inFlight = false;
     }
   }
 }
