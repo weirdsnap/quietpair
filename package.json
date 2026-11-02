@@ -113,8 +113,14 @@
         },
         "vsAgent.responseLanguage": {
           "type": "string",
-          "enum": ["zh", "en"],
-          "enumDescriptions": ["中文（默认）", "English"],
+          "enum": [
+            "zh",
+            "en"
+          ],
+          "enumDescriptions": [
+            "中文（默认）",
+            "English"
+          ],
           "default": "zh",
           "description": "Language of the model's user-facing output (chat replies, suggestion titles and details). The panel UI itself is English."
         },
@@ -148,11 +154,14 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:smoke": "vscode-test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.95.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "typescript": "^5.6.0",
     "vitest": "^5.0.1"
   }

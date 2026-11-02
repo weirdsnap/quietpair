@@ -23,3 +23,21 @@ jobs:
 
       # 单元测试（vitest，vscode 由 tests/vscode-stub.ts 桩替代）
       - run: npm test
+
+  # 真实宿主冒烟测试：vitest 全走 vscode 桩，证明不了扩展在真实宿主里能激活——
+  # activate() 抛异常、package.json 贡献点写错这类「F5 即崩」问题只有这道门禁能拦住
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run compile
+
+      # Electron 在 Linux 需要虚拟显示；@vscode/test-cli 会自动下载一份干净 VS Code
+      - run: xvfb-run -a npm run test:smoke

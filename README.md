@@ -184,9 +184,10 @@ vs_agent/
 | `npm install` | 安装依赖 |
 | `npm run compile` | 编译 TypeScript 到 `out/` |
 | `npm run watch` | 监听文件变化自动编译 |
-| `npm test` | 跑单元测试（vitest，127 项：`tests/` 下，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
+| `npm test` | 跑单元测试（vitest，170 项：`tests/` 下，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
+| `npm run test:smoke` | 真实宿主冒烟测试（`smoke/`）：下载一份干净 VS Code 真实加载扩展，验证 activate 全路径、命令注册、视图挂载——「F5 即崩」类问题的门禁（首次运行需下载约 150MB） |
 
-CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + test（需要把仓库推到 GitHub 才生效）。
+CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + vitest，并在独立 job 里跑真实宿主冒烟测试（xvfb 虚拟显示）。
 
 ## 参考文档
 
