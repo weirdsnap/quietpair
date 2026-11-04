@@ -44,8 +44,16 @@ suite('QuietPair smoke（真实宿主）', () => {
   });
 
   test('无 UI 命令可执行（clearChat / analyzeNow 走通命令→模块链路）', async () => {
-    // clearChat：重置会话历史（无面板时 post 为 no-op）
-    await assert.doesNotReject(() => vscode.commands.executeCommand('vs-agent.clearChat'));
+    // clearChat 会弹 modal 确认（破坏性操作的设计）；无头宿主没人点，await 会挂死到超时。
+    // 测试里把 showWarningMessage 换成「自动点 Clear」，既走通 命令→clear()→重置 全链路，
+    // 又记录了「这条命令是交互式的」这一事实
+    const origWarn = vscode.window.showWarningMessage;
+    vscode.window.showWarningMessage = async () => 'Clear';
+    try {
+      await assert.doesNotReject(() => vscode.commands.executeCommand('vs-agent.clearChat'));
+    } finally {
+      vscode.window.showWarningMessage = origWarn;
+    }
     // analyzeNow：无活动编辑器 → 走 notice 分支，不发网络请求
     await assert.doesNotReject(() => vscode.commands.executeCommand('vs-agent.analyzeNow'));
   });
