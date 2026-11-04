@@ -330,7 +330,27 @@
     }
   });
 
+  // ---- More 菜单：低频/破坏性动作收进二级（手动压缩、清空会话），顶栏保持干净 ----
+
+  const moreBtn = document.getElementById('more-btn');
+  const moreMenu = document.getElementById('more-menu');
+
+  moreBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    moreMenu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', function (e) {
+    if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target)) {
+      moreMenu.classList.add('hidden');
+    }
+  });
+
+  document.getElementById('compact-btn').addEventListener('click', function () {
+    moreMenu.classList.add('hidden');
+    vscode.postMessage({ type: 'compactNow' });
+  });
   document.getElementById('clear-btn').addEventListener('click', function () {
+    moreMenu.classList.add('hidden');
     vscode.postMessage({ type: 'clear' });
   });
   document.getElementById('settings-btn').addEventListener('click', function () {

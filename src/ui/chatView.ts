@@ -42,6 +42,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private currentTurnId = '';
   // init 流程重入守卫（选项卡等待回答期间也算 in-flight）
   private initInFlight = false;
+  // 手动压缩进行中（与 handleSend 互斥：压缩会整体替换 history）
+  private compacting = false;
 
   // Agent 跑完且期间写过文件时触发（交给守望模式复审）
   onFilesWritten?: (absolutePaths: string[]) => void;
@@ -298,9 +300,13 @@ ${summary}`;
 
   // 压缩：历史太长时把旧轮次蒸馏成摘要，近期保持原文（对标 Claude Code 的 compaction）。
   // 同一次蒸馏顺带做记忆沉淀：值得长期记住的条目按分区合并进 memory.md（增量合并，不覆写人类编辑）
-  private async compactIfNeeded(baseUrl: string, apiKey: string, model: string): Promise<void> {
-    if (this.estimateHistoryChars() < COMPACT_THRESHOLD_CHARS || this.history.length <= COMPACT_KEEP_RECENT + 2) {
-      return;
+  // force = 用户手动触发（跳过长度阈值，但消息数太少仍不压）。返回是否真的压缩了
+  private async compactIfNeeded(baseUrl: string, apiKey: string, model: string, force = false): Promise<boolean> {
+    if (this.history.length <= COMPACT_KEEP_RECENT + 2) {
+      return false; // 消息太少，压了也没意义
+    }
+    if (!force && this.estimateHistoryChars() < COMPACT_THRESHOLD_CHARS) {
+      return false;
     }
     const old = this.history.slice(1, this.history.length - COMPACT_KEEP_RECENT);
     const recent = this.history.slice(this.history.length - COMPACT_KEEP_RECENT);
@@ -309,7 +315,7 @@ ${summary}`;
       recent.shift();
     }
     if (old.length === 0) {
-      return;
+      return false;
     }
     const serialized = old
       .map((m) => `${m.role}: ${(typeof m.content === 'string' ? m.content : '').slice(0, 2000)}`)
@@ -371,8 +377,38 @@ ${serialized}`,
         title: '🗜 Conversation compacted',
         text: `${old.length} earlier messages were distilled into a summary; recent turns are kept verbatim. The full record remains in the transcript logs.${added > 0 ? `\n\n${added} durable note(s) were also merged into project memory (.vs-agent/memory.md).` : ''}`,
       });
+      return true;
     } catch (err) {
       this.logger.error(`compaction failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }
+
+  // 手动压缩（More 菜单 → Compact now）：不等阈值，用户觉得话题要拐弯/上下文要烂了随时压
+  async compactNow(): Promise<void> {
+    if (this.running || this.compacting) {
+      this.note('Busy', 'Wait for the current run to finish, then compact.');
+      return;
+    }
+    let apiKey = await getApiKey(this.context);
+    if (!apiKey) {
+      apiKey = await promptForApiKey(this.context);
+      if (!apiKey) {
+        this.post({ type: 'error', message: 'No API key set. Use the key button above or the "QuietPair: Set API Key" command.' });
+        return;
+      }
+    }
+    const config = getConfig();
+    this.compacting = true;
+    this.logger.event('lifecycle', { summary: 'manual compaction requested' });
+    this.note('🗜 Compacting…', 'Distilling earlier turns into a summary; durable notes go into project memory.');
+    try {
+      const compacted = await this.compactIfNeeded(config.baseUrl, apiKey, config.model, true);
+      if (!compacted) {
+        this.note('Nothing to compact', 'The conversation is still short — automatic compaction kicks in when it grows long.');
+      }
+    } finally {
+      this.compacting = false;
     }
   }
 
@@ -518,6 +554,9 @@ ${serialized}`,
       case 'clear':
         await this.clear();
         break;
+      case 'compactNow':
+        await this.compactNow();
+        break;
       case 'stop':
         this.stopRun();
         this.logger.event('interrupt', { summary: 'user pressed stop' });
@@ -604,6 +643,11 @@ ${serialized}`,
   }
 
   private async handleSend(text: string): Promise<void> {
+    // 压缩进行中会整体替换 history，等它完事再发
+    if (this.compacting) {
+      this.post({ type: 'error', message: 'Compaction in progress — try again in a moment.' });
+      return;
+    }
     // 结对编程式插话：AI 正在干活时发消息 = 先打断当前任务，再说新的
     if (this.running) {
       this.stopRun();
@@ -741,7 +785,13 @@ ${serialized}`,
     <button id="init-btn" title="Initialize project memory: let the AI explore the project and write it into .vs-agent/memory.md">Init</button>
     <button id="analyze-btn" title="Analyze the current file now (skips debounce/cooldown/dedup, for testing)">Analyze</button>
     <button id="logs-btn" title="Activity view: the unified event stream (chat turns, watch decisions, metrics) with track filters">Activity</button>
-    <button id="clear-btn" title="Clear conversation">Clear</button>
+    <div id="more-menu-wrap">
+      <button id="more-btn" title="More actions: compact the conversation, clear it">More</button>
+      <div id="more-menu" class="hidden">
+        <button id="compact-btn" title="Distill earlier turns into a summary now (normally automatic when the history grows long)">Compact now</button>
+        <button id="clear-btn" class="danger" title="Clear conversation (asks for confirmation; project memory is kept)">Clear conversation</button>
+      </div>
+    </div>
   </div>
   <div id="settings-view" class="hidden">
     <h3>Settings</h3>
