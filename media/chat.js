@@ -801,6 +801,27 @@
         renderSuggestionCard(msg);
         currentAssistant = null;
         break;
+      // 主动记忆指令的轻卡：可忽略；点 Remember it 才落盘（后端去重，重复会回 Already in memory）
+      case 'memoryCandidate': {
+        const entry = buildSuggestionCard('📝 Sounds like something to remember');
+        renderRich(entry.body, '"' + (msg.text || '') + '"\n\n→ ' + (msg.section || '偏好与约定'));
+        const row = document.createElement('div');
+        row.className = 'ladder-row';
+        const btn = document.createElement('button');
+        btn.className = 'quote-btn';
+        btn.textContent = 'Remember it';
+        btn.title = 'Save this to project memory (.vs-agent/memory.md)';
+        btn.addEventListener('click', function () {
+          vscode.postMessage({ type: 'rememberThis', text: msg.text, kind: msg.section });
+          btn.disabled = true;
+          btn.textContent = '✓ Remembered';
+        });
+        row.appendChild(btn);
+        entry.body.appendChild(row);
+        scrollToBottom();
+        currentAssistant = null;
+        break;
+      }
       case 'companionState':
         companionBtn.textContent = 'Watch·' + (msg.enabled ? 'On' : 'Off');
         companionBtn.classList.toggle('off', !msg.enabled);

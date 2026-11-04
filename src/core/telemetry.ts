@@ -19,6 +19,8 @@
  *   suggestion_discussed  点 Discuss 带进聊天
  *   suggestion_stale      用户编辑使一批标注变「待确认」（存活分析的素材）
  *   mode_switched         学习模式切换（解释后续行为的语境）
+ *   memory_command_detected  检出疑似主动记忆指令（轻卡展示，未落盘）
+ *   memory_command_saved     用户点「Remember it」确认落盘（检测准确率数据对）
  *
  * 存活率（30s/120s/… 档）不主动追踪：由 suggestion_shown / stale / adopted 的时间戳离线算。
  */
@@ -118,5 +120,15 @@ export class Telemetry {
   /** 学习模式切换（解释后续行为的语境） */
   modeSwitched(learningMode: boolean, via: 'quick-toggle' | 'settings'): void {
     this.emit('mode_switched', { learningMode, via }, `metric: learning mode ${learningMode ? 'on' : 'off'} (${via})`);
+  }
+
+  /** 检出疑似主动记忆指令——只展示轻卡，不落盘；与 saved 配对算检测准确率 */
+  memoryCommandDetected(section: string, matched: string): void {
+    this.emit('memory_command_detected', { section, matched }, `metric: memory command candidate [${section}] (${matched})`);
+  }
+
+  /** 用户在轻卡上点「Remember it」确认落盘 */
+  memoryCommandSaved(section: string, added: boolean): void {
+    this.emit('memory_command_saved', { section, added }, `metric: memory command saved [${section}]${added ? '' : ' (dup)'}`);
   }
 }

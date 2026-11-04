@@ -15,6 +15,7 @@ import { SharedContext } from '../memory/sharedContext';
 import { Logger } from '../core/logger';
 import { UsageTracker } from '../core/usage';
 import { memoryStore, MEMORY_TEMPLATE } from '../memory/store';
+import { detectMemoryCommand } from '../memory/detect';
 import type { Suggestion } from '../companion/annotations';
 import type { Telemetry } from '../core/telemetry';
 
@@ -557,6 +558,21 @@ ${serialized}`,
       case 'compactNow':
         await this.compactNow();
         break;
+      // 轻卡上的「Remember it」：用户确认后才落盘（kind 传目标分区，非法值兜底到偏好与约定）
+      case 'rememberThis': {
+        const text = String(msg.text ?? '').trim();
+        if (text) {
+          const section = ['禁区', '重要决策', '偏好与约定'].includes(String(msg.kind)) ? String(msg.kind) : '偏好与约定';
+          const added = await memoryStore.appendEntries([{ section, entry: `用户指令：${text}` }]);
+          this.telemetry?.memoryCommandSaved(section, added > 0);
+          this.logger.event('lifecycle', { summary: `memory command saved [${section}]: ${text.slice(0, 100)}` });
+          this.note(
+            added > 0 ? '✓ Remembered' : 'Already in memory',
+            added > 0 ? `Saved to project memory → ${section}. It will steer future runs.` : 'An identical entry is already in project memory.'
+          );
+        }
+        break;
+      }
       case 'stop':
         this.stopRun();
         this.logger.event('interrupt', { summary: 'user pressed stop' });
@@ -678,6 +694,13 @@ ${serialized}`,
       permissionMode: this.permissionMode(),
       summary: `user: ${text.slice(0, 200)}`,
     });
+    // 主动记忆指令检测：只给一张可忽略的轻卡（带 Remember it 按钮），
+    // 不弹审批、不自动落盘——检测/保存都落埋点，先攒准确率数据再决定要不要更主动
+    const memCmd = detectMemoryCommand(text);
+    if (memCmd) {
+      this.telemetry?.memoryCommandDetected(memCmd.section, memCmd.matched);
+      this.post({ type: 'memoryCandidate', text: text.slice(0, 300), section: memCmd.section });
+    }
     // 首次运行时建立记忆文件模板，用户能看到「伙伴记了什么」
     if (!(await memoryStore.read()).trim()) {
       await memoryStore.write(MEMORY_TEMPLATE).catch(() => undefined);
