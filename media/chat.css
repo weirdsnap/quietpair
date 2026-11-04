@@ -294,6 +294,48 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
+/* ---- 工具调用分组：一张卡装连续工具活动，内层每次调用一条二级折叠 ---- */
+
+.tool-group-body {
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-entry summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tool-entry summary::before {
+  content: '▸';
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.tool-entry[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-entry summary:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.tool-entry pre {
+  border-top: none;
+  padding: 4px 8px 6px 24px;
+  max-height: 160px;
+}
+
 /* ---- 思考流卡片（reasoning）：灰调斜体，流式时展开、说完折叠 ---- */
 
 .msg.reasoning {

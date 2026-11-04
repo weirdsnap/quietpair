@@ -81,24 +81,78 @@
     return div;
   }
 
-  function addToolCard(name, text, isResult) {
+  // ---- 工具调用分组：连续的工具活动合并成一张可折叠卡，不再一次调用两条细线。
+  // 标题实时显示「最新工具名 · 调用数」；展开看每次调用一行，每行还能再展开看参数+结果。
+  // 组合在助手开口说话 / 弹审批 / 一轮结束时封闭，下一轮工具另起一组
+  let currentToolGroup = null; // {label, body, count, pending:[{name, pre, icon}]}
+
+  function finishToolGroup() {
+    currentToolGroup = null;
+  }
+
+  function toolGroup() {
+    if (currentToolGroup) {
+      return currentToolGroup;
+    }
     removeEmptyHint();
     const d = document.createElement('details');
-    d.className = 'msg tool';
+    d.className = 'msg tool tool-group';
+    const sum = document.createElement('summary');
+    const label = document.createElement('span');
+    label.className = 'tool-name';
+    sum.appendChild(label);
+    const body = document.createElement('div');
+    body.className = 'tool-group-body';
+    d.appendChild(sum);
+    d.appendChild(body);
+    messages.appendChild(d);
+    currentToolGroup = { label: label, body: body, count: 0, pending: [] };
+    return currentToolGroup;
+  }
+
+  function appendToolEntry(g, name, text, done) {
+    const d = document.createElement('details');
+    d.className = 'tool-entry';
     const sum = document.createElement('summary');
     const icon = document.createElement('span');
     icon.className = 'tool-icon';
-    icon.textContent = isResult ? '✔' : '⚙';
+    icon.textContent = done ? '✔' : '⚙';
     const label = document.createElement('span');
     label.className = 'tool-name';
-    label.textContent = name + (isResult ? ' · result' : '');
+    label.textContent = name;
     sum.appendChild(icon);
     sum.appendChild(label);
     const pre = document.createElement('pre');
     pre.textContent = text;
     d.appendChild(sum);
     d.appendChild(pre);
-    messages.appendChild(d);
+    g.body.appendChild(d);
+    return { name: name, pre: pre, icon: icon };
+  }
+
+  function addToolEvent(name, text, isResult) {
+    const g = toolGroup();
+    if (isResult) {
+      // 结果并入同名的待发条目（参数+结果收进同一条）；对不上就单立一条
+      let entry = null;
+      for (let i = g.pending.length - 1; i >= 0; i--) {
+        if (g.pending[i].name === name) {
+          entry = g.pending[i];
+          g.pending.splice(i, 1);
+          break;
+        }
+      }
+      if (entry) {
+        entry.pre.textContent += '\n→ ' + text;
+        entry.icon.textContent = '✔';
+      } else {
+        appendToolEntry(g, name, '→ ' + text, true);
+      }
+    } else {
+      g.pending.push(appendToolEntry(g, name, text, false));
+    }
+    g.count = g.body.children.length;
+    g.label.textContent = name + ' · ' + g.count + ' tool call' + (g.count > 1 ? 's' : '');
     scrollToBottom();
   }
 
@@ -728,6 +782,7 @@
     const msg = e.data;
     switch (msg.type) {
       case 'token':
+        finishToolGroup(); // 助手开口说话 = 上一段工具活动结束
         if (!currentAssistant) {
           currentAssistant = addBubble('assistant', '');
           currentAssistant.dataset.raw = '';
@@ -745,29 +800,33 @@
         break;
       case 'toolStart':
         finishReasoning();
-        addToolCard(msg.name, msg.args, false);
+        addToolEvent(msg.name, msg.args, false);
         currentAssistant = null;
         break;
       case 'toolResult':
-        addToolCard(msg.name, msg.result, true);
+        addToolEvent(msg.name, msg.result, true);
         currentAssistant = null;
         break;
       case 'confirm':
         finishReasoning();
+        finishToolGroup();
         addConfirmBubble(msg.id, msg.action, msg.detail);
         currentAssistant = null;
         break;
       case 'choice':
         finishReasoning();
+        finishToolGroup();
         addChoiceBubble(msg.id, msg.question, msg.options || []);
         currentAssistant = null;
         break;
       case 'done':
         finishReasoning();
+        finishToolGroup();
         currentAssistant = null;
         break;
       case 'interrupted': {
         finishReasoning();
+        finishToolGroup();
         const entry = buildSuggestionCard('⏹ Stopped');
         entry.body.textContent = '(was ' + (msg.activity || 'composing reply') + ') — go ahead, I am listening.';
         scrollToBottom();
@@ -776,6 +835,7 @@
       }
       case 'error':
         finishReasoning();
+        finishToolGroup();
         addBubble('error', msg.message);
         currentAssistant = null;
         break;
@@ -783,6 +843,7 @@
         setBusy(msg.busy);
         break;
       case 'suggestionStart':
+        finishToolGroup();
         onSuggestionStart(msg.id, msg.file, msg.label);
         currentAssistant = null;
         break;
@@ -791,6 +852,7 @@
         currentAssistant = null;
         break;
       case 'note': {
+        finishToolGroup();
         const entry = buildSuggestionCard(msg.title);
         renderRich(entry.body, msg.text);
         scrollToBottom();
@@ -798,11 +860,13 @@
         break;
       }
       case 'suggestionCard':
+        finishToolGroup();
         renderSuggestionCard(msg);
         currentAssistant = null;
         break;
       // 主动记忆指令的轻卡：可忽略；点 Remember it 才落盘（后端去重，重复会回 Already in memory）
       case 'memoryCandidate': {
+        finishToolGroup();
         const entry = buildSuggestionCard('📝 Sounds like something to remember');
         renderRich(entry.body, '"' + (msg.text || '') + '"\n\n→ ' + (msg.section || '偏好与约定'));
         const row = document.createElement('div');
@@ -878,6 +942,7 @@
         break;
       }
       case 'cleared':
+        finishToolGroup();
         showEmptyHint();
         setBusy(false);
         break;
