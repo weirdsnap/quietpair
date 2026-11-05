@@ -56,7 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
     const first = l3[0];
     const file = vscode.workspace.asRelativePath(uri);
-    sharedContext.markViewed(file, first.line); // L3 自动展开 = 用户正在看这条
+    sharedContext.markViewed(file, first.line, first.title); // L3 自动展开 = 用户正在看这条
     telemetry.suggestionViewed(first, file, 'l3-auto', snapOpts(first));
     void vscode.window.showWarningMessage(
       `QuietPair: ${file}${first.line ? `:${first.line}` : ''} — ${first.title}${l3.length > 1 ? ` (${l3.length} critical issues)` : ''}`
@@ -259,7 +259,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
-      sharedContext.markViewed(file, s.line); // 用户点开了这条 = 后续模糊提问大概率指它
+      sharedContext.markViewed(file, s.line, s.title); // 用户点开了这条 = 后续模糊提问大概率指它
       telemetry.suggestionViewed(s, file, 'codelens', snapOpts(s));
       chatProvider.showSuggestionCard(
         s,
@@ -288,7 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const uri = vscode.Uri.parse(uriStr);
       const relFile = vscode.workspace.asRelativePath(uri);
-      sharedContext.markViewed(relFile, s.line);
+      sharedContext.markViewed(relFile, s.line, s.title);
       logger.event('lifecycle', { summary: `confirm fix requested: ${s.title}` });
       const result = await companion.confirmFix(uri.fsPath, s);
 
@@ -349,7 +349,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uriStr));
-      sharedContext.markViewed(file, s.line);
+      sharedContext.markViewed(file, s.line, s.title);
       telemetry.suggestionDiscussed(s, file, snapOpts(s));
       chatProvider.discussSuggestion(
         `${levelIcon(s.level)} L${s.level} ${LEVEL_LABEL[s.level]} · ${file}${s.line ? `:${s.line}` : ''} — ${s.title}`,
