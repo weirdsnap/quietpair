@@ -21,6 +21,7 @@ import { COMPANION_PROMPT, LEARNING_COMPANION } from '../agent/prompts';
 import { memoryStore } from '../memory/store';
 import { Suggestion, SuggestionLevel } from './annotations';
 import { ActivityTracker } from './activity';
+import { LineDiff, lineDiff } from '../core/lineDiff';
 
 const MAX_CONTEXT_CHARS = 40000;
 const MAX_DIAGNOSTICS = 20;
@@ -73,6 +74,8 @@ export function parseSuggestions(text: string): Suggestion[] | null {
 
 export class Analyzer {
   private lastHash = new Map<string, number>();
+  // 上次分析版本的全文（配合 lineDiff 做区域级确定性豁免：改动离建议很远就免 LLM 复审）
+  private lastContent = new Map<string, string>();
   private lastAnalysisAt = 0;
   private controller: AbortController | undefined;
   // 真正在跑 LLM 分析（单飞语义下，手动入口应拦重击而不是 abort 重跑白烧 token）
@@ -89,6 +92,12 @@ export class Analyzer {
   /** 自上次分析以来该文档是否有实质变化（hash 去重判断） */
   hasUnanalyzedChanges(doc: vscode.TextDocument): boolean {
     return this.lastHash.get(doc.uri.toString()) !== this.hash(doc.getText());
+  }
+
+  /** 当前内容与上次分析版本的行级 diff；无分析基线返回 undefined，完全一致返回 null */
+  diffVsLastAnalysis(doc: vscode.TextDocument): LineDiff | null | undefined {
+    const old = this.lastContent.get(doc.uri.toString());
+    return old === undefined ? undefined : lineDiff(old, doc.getText());
   }
 
   /** 中止在途的分析请求（dispose 时调用） */
@@ -263,6 +272,7 @@ ${content}
         });
       }
       this.lastHash.set(docKey, hash);
+      this.lastContent.set(docKey, full);
 
       const trimmed = answer.trim();
       const parsed = trimmed ? parseSuggestions(trimmed) : [];

@@ -21,6 +21,7 @@ import { Analyzer } from './analyzer';
 import { SaveTriage } from './triage';
 import { classifyDelay, isSemanticallySettled } from './gate';
 import { decideSpeak } from './decision';
+import { isLineOutsideEdits } from '../core/lineDiff';
 
 const MAX_REVIEW_FILES = 3;
 
@@ -35,11 +36,13 @@ export interface CompanionCallbacks {
   onUsage?(usage: TokenUsage): void;
 }
 
-// 「✓ 改好了」的三种结局：聊天在跑 → busy；文件没变化但当前内容刚分析过 → unchanged
-//（现有标注就是最新判断，无需再调 LLM）；真正复审出新结果 → reviewed
+// 「✓ 改好了」的四种结局：聊天在跑 → busy；文件没变化但当前内容刚分析过 → unchanged
+//（现有标注就是最新判断，无需再调 LLM）；改动离建议很远（diff 确定性判定）→ untouched
+//（问题区域逐字节没变，免 LLM 复审）；真正复审出新结果 → reviewed
 export type ConfirmResult =
   | { status: 'busy' }
   | { status: 'unchanged' }
+  | { status: 'untouched' }
   | { status: 'reviewed'; suggestions: Suggestion[] };
 
 export class Companion implements vscode.Disposable {
@@ -292,6 +295,12 @@ export class Companion implements vscode.Disposable {
       if (!this.analyzer.hasUnanalyzedChanges(doc)) {
         // 内容没变 = 当前这份代码我刚分析过，现有的标注就是最新判断，不用花 token 再看一遍
         return { status: 'unchanged' };
+      }
+      // 区域级确定性豁免：diff 证明改动没碰到这条建议的邻近区域（该行内容逐字节未变），
+      // 免 LLM 复审直接如实告知。措辞留余地——问题若依赖远端代码则此判定不保真
+      const diff = this.analyzer.diffVsLastAnalysis(doc);
+      if (diff && s.line !== undefined && isLineOutsideEdits(s.line, diff)) {
+        return { status: 'untouched' };
       }
       const rel = vscode.workspace.asRelativePath(doc.uri);
       const suggestions = await this.analyzer.analyze(

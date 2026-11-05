@@ -307,6 +307,16 @@ export function activate(context: vscode.ExtensionContext) {
         );
         return;
       }
+      if (result.status === 'untouched') {
+        // diff 确定性判定：改动离这条建议很远，问题区域逐字节没变。如实告知但不进
+        // adopted/rejected——此判定只保证「那几行代码没变」，不保证问题依赖远端代码的情形
+        logger.event('lifecycle', { summary: `confirm untouched (edit far from issue): ${s.title}` });
+        chatProvider.note(
+          '🎯 Your edit was nowhere near this one',
+          `"${s.title}" sits at line ${s.line}, and your changes were all elsewhere — that code is byte-identical, so the issue almost certainly still stands.\nIf this was meant as the fix, it missed the spot; if you were editing something else on purpose, just ignore this.`
+        );
+        return;
+      }
 
       // 判定修复：复审后原位置（±3 行）没有同级及以上问题就算修好。
       // 三态语义：「比对不了」既不是「修好了」也不是「还在」——原建议没行号时按位置无从比对，
