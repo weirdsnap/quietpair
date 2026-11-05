@@ -16,8 +16,10 @@ src/
 │   │                       + 学习模式开关（vsAgent.learningMode）
 │   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、reasoning_content 思考流捕获、
 │   │                       tool_calls 累积、AbortSignal、usage 回收
+│   ├── lineDiff.ts         行级 diff（公共前后缀夹逼，零依赖）：未变区逐行精确为真，
+│   │                       支撑 confirmFix 的区域级确定性豁免（untouched 分支）
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
-│   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换事件，
+│   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换 + 记忆指令检测事件，
 │   │                       全走 logger 落 transcript（kind: metric）——评测/个性化的数据底子
 │   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘；每条事件打 track
 │                           （chat/watch/metrics/system，由 kind 推导）+ turnId（chat-N / watch-N
@@ -57,8 +59,10 @@ src/
 │
 ├── memory/                 记忆层
 │   ├── store.ts            项目记忆 .vs-agent/memory.md（注入 system prompt，AI 可写）
-│   └── sharedContext.ts    守望建议栈 → 注入聊天 prompt（「刚才那个建议」；
-│                           「正在看」标记 + 卡片Discuss按钮引用解决模糊指代）
+│   ├── detect.ts           主动记忆指令检测（纯函数，零 LLM）：关键词分级（禁区>决策>偏好），
+│   │                       命中发轻卡，用户点 Remember it 才落盘——先攒准确率数据
+│   └── sharedContext.ts    守望建议栈 → 注入聊天 prompt（「刚才那个建议」；同文件重分析
+│                           整体替换不重复入栈；「正在看」标记按身份键 file:line / file:title 携带）
 │
 └── ui/
     └── chatView.ts         Webview 后端：会话历史（持久化+压缩）、审批、打断、设置页；
@@ -116,8 +120,13 @@ chatProvider.initProject → 选项卡（代码层确定性分支，不经 LLM�
 
 ```
 用户手动编辑 → 标注降级为「待确认」（变暗保留）
-  → 用户点Fixed → companion.confirmFix（绕过冷却，带「用户声称已修复 X」提示）
-  → 复审通过：消除 + 面板低调确认；未通过：指出问题还在
+  → 用户点Fixed → companion.confirmFix（绕过冷却），四结局：
+      busy      聊天在跑，稍后重试
+      unchanged 文件没变化 → 现有标注就是最新判断，不白调 LLM
+      untouched diff 证明改动没碰到建议邻近区域（问题区域逐字节没变）
+                → 免 LLM 如实告知「没修到点上」（措辞留余地，不进 adopted/rejected）
+      reviewed  LLM 复审出新结果 → ±3 行内同级问题消失 = 修好；
+                无行号建议无法按位置比对 → 第三态「新鲜分析 + 用户自己判断」
 用户点Discuss → 建议进入聊天引用 chip → 用户输入问题 → 正常聊天链路
 Agent write_file → companion.reviewFiles（绕过冷却，只报与本次改动相关的问题）
   → 干净 → 标注静默消除，只记 transcript（不打扰用户）
@@ -142,7 +151,7 @@ onDidSaveTextDocument
 | 层 | 存储 | 记什么 |
 | --- | --- | --- |
 | 会话历史 | workspaceState（按工作区） | 聊过什么（超长自动压缩） |
-| 项目记忆 | .vs-agent/memory.md（工作区内，可提交 git） | 结论是啥：概况/偏好/决策/进行中/禁区 |
+| 项目记忆 | .vs-agent/memory.md（工作区内，可提交 git；本仓库自身的已 gitignore） | 结论是啥：概况/偏好/决策/进行中/禁区 |
 | transcript | globalStorage/logs/*.jsonl | 一切细节（复盘用） |
 
 ## 关键设计决策

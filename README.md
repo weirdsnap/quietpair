@@ -22,6 +22,8 @@ vs_agent/
 │   ├── core/                  # 基础设施：与业务无关的底层能力
 │   │   ├── config.ts          # 读取配置项（baseUrl/model）+ SecretStorage 存取 API key
 │   │   ├── llm.ts             # OpenAI 兼容的流式 chat completions 客户端（SSE 解析，支持 AbortSignal，回传 token 用量）
+│   │   ├── lineDiff.ts        # 行级 diff（公共前后缀夹逼，零依赖）：未变区逐行精确，支撑确定性豁免判定
+│   │   ├── telemetry.ts       # 埋点 schema 集中处：建议生命周期/模式切换/记忆指令检测，全走 logger 落 transcript
 │   │   ├── usage.ts           # Token 消耗统计：会话级 + 全局累计，按来源（聊天/守望/压缩）细分
 │   │   └── logger.ts          # 双通道日志：Output 面板实时日志 + JSONL transcript 落盘复盘；track/turnId 信封 + 内存 ring buffer 供面板 Activity 视图
 │   ├── agent/                 # 聊天 Agent：对话与工具执行
@@ -37,7 +39,8 @@ vs_agent/
 │   │   └── annotations.ts     # 编辑器内标注：分级 Decoration + 悬停详情 + CodeLens + 问题面板诊断
 │   ├── memory/                # 记忆：会话历史、项目记忆、共享上下文
 │   │   ├── store.ts           # 会话历史持久化（workspaceState）+ 项目记忆文件（.vs-agent/memory.md）+ 压缩
-│   │   └── sharedContext.ts   # 守望 ↔ 聊天共享上下文栈（「刚才那个建议」）
+│   │   ├── detect.ts          # 主动记忆指令检测（纯函数，零 LLM）：「记住/以后都/别再…」→ 轻卡待用户确认
+│   │   └── sharedContext.ts   # 守望 ↔ 聊天共享上下文栈（「刚才那个建议」；同文件重分析替换语义 + 身份键）
 │   └── ui/
 │       └── chatView.ts        # 侧边栏 Webview provider：聊天、建议卡片、审批交互
 ├── media/
@@ -132,7 +135,7 @@ vs_agent/
 定位是「这个项目的结对伙伴」而非通用助手：不要全局长期记忆，不要同项目多会话。
 
 - **单会话**：一个项目一条持续线程，历史存 `workspaceState`（按工作区隔离），重开 VS Code 接着聊；Clear 收在顶栏 More 菜单里（低频破坏性动作不占一级位置），点后弹确认——清空会先打断运行中的任务并等它收尾，避免旧任务往已清空的面板里写气泡
-- **项目持久记忆**：`.vs-agent/memory.md` 存于工作区内（人类可读可改、可提交 git）。固定分区：项目概况 / 偏好与约定 / 重要决策（带日期）/ 进行中 / 禁区（用户拒绝过的建议，别再提）。内容注入聊天 Agent 和守望分析的 prompt；Agent 通过 `update_memory` 工具主动维护（整文件覆写，无需审批）
+- **项目持久记忆**：`.vs-agent/memory.md` 存于工作区内（人类可读可改、可提交 git；本仓库自己的 memory.md 已 gitignore——Kimi 与 QuietPair 双边写入会打架，保持纯本地）。固定分区：项目概况 / 偏好与约定 / 重要决策（带日期）/ 进行中 / 禁区（用户拒绝过的建议，别再提）。内容注入聊天 Agent 和守望分析的 prompt；Agent 通过 `update_memory` 工具主动维护（整文件覆写，无需审批）
 - **主动记忆指令**：聊天里直接说「记住：……」「以后都……」「别再……」「remember …」这类话时，本地关键词检测（`src/memory/detect.ts`，零 LLM 调用）会给一张可忽略的轻卡，点 **Remember it** 才落盘（去重；以「用户指令：」前缀存入对应分区）。不弹审批、不自动写——检测与确认都落埋点（`memory_command_detected` / `memory_command_saved`），先攒准确率数据再决定要不要更主动
 - **初始化记忆（init）**：面板顶栏点 Init 或命令 `QuietPair: Init Project Memory`，先选模式——"Guide me through it"：AI 交付阅读地图（入口/依赖方向/推荐阅读顺序），逐站陪同并用提问验证你的理解，你确认过的理解写入记忆（带 ✅ 前缀）；"Summarize for me"：Agent 自己探索整个项目，把项目概况、技术栈、目录结构、构建方式写进记忆文件。探索过程在面板里可见、可打断，完成后守望模式的建议就有了项目全局视野。重复点击：init 进行中（含选项卡未回答）再点会被拦下并提示；已有实质记忆时再点，选项变为「刷新记忆 / 再带我读一遍 / 取消」——刷新是增量更新，不覆盖你的手动编辑；Agent 运行期间 Init 按钮禁用，避免误打断
 - **压缩机制**：对话历史超过约 6 万字符时，自动把旧轮次蒸馏成 300 字内的摘要（保留近期 12 条原文），面板提示「🗜 对话已压缩」；同一次蒸馏顺带做**记忆沉淀**——值得长期记住的约定/决策/偏好按分区增量合并进 `.vs-agent/memory.md`（只追加不覆写，保住人类手动编辑）；完整记录仍可从日志 transcript 复盘。也可以主动触发：顶栏 **More → Compact now** 随时手动压缩（不等阈值；消息太少时会说明不压）。整理挂靠在「一章结束」的自然节点，不依赖 VS Code 关闭钩子（`deactivate` 不保证被调用、也没有时间发 LLM 请求，所有状态都是每步落盘的 crash-safe 设计）
@@ -153,7 +156,7 @@ vs_agent/
 | `tool_call` / `tool_result` | 工具名、参数、结果（截断保护） |
 | `approval` | 审批请求内容 + 用户批准/拒绝的决定 |
 | `companion` | 守望全链路：触发原因（`deletion`/`paste`/`statement-boundary`/`typing`）与延迟、开口决策（`phase: 'decision'`，三值判定 `speak`/`delay`/`suppress` + 理由）、哈希去重跳过、分析中自主取证的工具调用、分析结果（建议数、级别、明细） |
-| `metric` | 埋点事件（schema 集中在 `src/core/telemetry.ts`）：建议生命周期 `suggestion_shown`/`viewed`/`fix_revealed`/`deepen_clicked`/`adopted`/`rejected`/`confirm_unchanged`/`discussed`/`stale`、模式切换 `mode_switched`——接受率漏斗、泄题率、时机分析的原始数据 |
+| `metric` | 埋点事件（schema 集中在 `src/core/telemetry.ts`）：建议生命周期 `suggestion_shown`/`viewed`/`fix_revealed`/`deepen_clicked`/`adopted`/`rejected`/`confirm_unchanged`/`discussed`/`stale`、模式切换 `mode_switched`、记忆指令 `memory_command_detected`/`memory_command_saved`——接受率漏斗、泄题率、时机分析、检测准确率的原始数据 |
 | `usage` | 每次 LLM 调用的 token 用量（来源 `chat`/`companion`/`compact`，输入/输出分开计） |
 | `interrupt` | 打断时刻正在做什么、说到了哪 |
 | `error` | API 错误等异常 |
@@ -185,7 +188,7 @@ vs_agent/
 | `npm install` | 安装依赖 |
 | `npm run compile` | 编译 TypeScript 到 `out/` |
 | `npm run watch` | 监听文件变化自动编译 |
-| `npm test` | 跑单元测试（vitest，170 项：`tests/` 下，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
+| `npm test` | 跑单元测试（vitest，189 项：`tests/` 下，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
 | `npm run test:smoke` | 真实宿主冒烟测试（`smoke/`）：下载一份干净 VS Code 真实加载扩展，验证 activate 全路径、命令注册、视图挂载——「F5 即崩」类问题的门禁（首次运行需下载约 150MB） |
 
 CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + vitest，并在独立 job 里跑真实宿主冒烟测试（xvfb 虚拟显示）。
