@@ -308,8 +308,27 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      // 判定修复：复审后原位置（±3 行）没有同级及以上问题就算修好
-      const remaining = result.suggestions.filter((x) => x.line && s.line && Math.abs(x.line - s.line) <= 3 && x.level >= s.level);
+      // 判定修复：复审后原位置（±3 行）没有同级及以上问题就算修好。
+      // 三态语义：「比对不了」既不是「修好了」也不是「还在」——原建议没行号时按位置无从比对，
+      // 如实把新鲜分析交给用户自己判断（且不算进 adopted/rejected，避免污染接受率数据）
+      const from = s.line; // 提成局部 const：闭包里属性访问的类型收窄会丢
+      const remaining =
+        from === undefined
+          ? []
+          : result.suggestions.filter(
+              (x) => x.line !== undefined && x.level >= s.level && Math.abs(x.line - from) <= 3
+            );
+
+      // 第三态：没行号且复审非空 → 无法判定。复审为空（模型说文件干净）则是真确认，不算第三态
+      if (from === undefined && result.suggestions.length > 0) {
+        logger.event('lifecycle', { summary: `confirm inconclusive (no line): ${s.title}` });
+        chatProvider.note(
+          '🔍 Re-analysed — your call',
+          `"${s.title}" carries no line number, so I cannot tell whether it is gone. Here is the fresh analysis of the file:\n\n${formatSummary(result.suggestions)}`
+        );
+        return;
+      }
+
       if (remaining.length === 0) {
         logger.event('lifecycle', { summary: `fix verified: ${s.title}` });
         telemetry.suggestionAdopted(s, relFile, 'confirm-verified', snapOpts(s));
