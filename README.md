@@ -172,14 +172,29 @@ vs_agent/
 
 ## 如何运行调试
 
-1. 用 VS Code 打开本文件夹：`code /Users/herta/learning/vs_agent`
-2. 按 **F5** 启动「扩展开发宿主」窗口
-3. 在新窗口左侧活动栏点 QuietPair 图标，打开 Chat 面板
-4. 点Settings配 baseUrl 和 model，点「Key」填入 API key
-5. 点Init让 AI 先探索一遍项目、建立初始记忆（可选但推荐，守望建议会因此更懂项目）
-6. 随便打开一个代码文件编辑几行，停笔约 10 秒，守望模式会自动分析并推送建议；也可以直接在输入框提问
+1. 安装 Node.js LTS（npm 会随 Node.js 一起安装），并确认终端能执行 `node -v` 和 `npm -v`。VS Code 自带的 Node.js 只负责运行插件，不提供安装依赖和编译 TypeScript 所需的工具链。
+2. 用 VS Code 打开本文件夹，安装依赖并完成首次编译：
+   ```
+   npm install
+   npm run compile
+   ```
+3. 按 **F5**，选择 **Run Extension**，启动「扩展开发宿主」窗口。F5 会通过 `.vscode/tasks.json` 自动运行 `npm run watch`，监听代码变化并增量编译。
+4. 在新窗口左侧活动栏点 QuietPair 图标，打开 Chat 面板
+5. 点Settings配 baseUrl 和 model，点「Key」填入 API key
+6. 点Init让 AI 先探索一遍项目、建立初始记忆（可选但推荐，守望建议会因此更懂项目）
+7. 随便打开一个代码文件编辑几行，停笔约 10 秒，守望模式会自动分析并推送建议；也可以直接在输入框提问
 
-改代码后运行 `npm run watch` 自动编译，调试窗口按 `Cmd+R` 刷新。
+改代码后 `watch` 任务会自动编译，调试窗口按 `Ctrl+R`（macOS 为 `Cmd+R`）刷新；如果该任务未运行，手动执行 `npm run watch`。
+
+### 常见问题
+
+- **`Activating extension ... failed: Cannot find module .../out/extension.js`**：TypeScript 尚未编译。执行 `npm install` 和 `npm run compile`，确认 `out/extension.js` 存在后重新按 F5。
+- **`node` / `npm` 不是内部或外部命令**：Node.js 未安装，或 VS Code 尚未读取更新后的 PATH。安装 Node.js 后完全退出并重新打开 VS Code，再在终端执行 `node -v`、`npm -v` 验证。
+- **PowerShell 提示「无法加载文件 ...\npm.ps1，因为在此系统上禁止运行脚本」**：在当前 PowerShell 终端执行以下命令，输入 `Y` 确认后重开终端：
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+  ```
+  该设置仅影响当前 Windows 用户。临时使用 `npm.cmd` 也能绕过此提示，但 F5 的自动编译任务仍可能遇到同样问题，建议按上述方式修复。
 
 ## 常用命令
 
