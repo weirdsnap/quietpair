@@ -3,13 +3,13 @@
  * 守望发现的建议写入这里，发聊天消息时注入 system prompt，
  * 因此用户可以说「刚才那个建议」「标红的那行」而无需复制粘贴。
  */
-import { Suggestion, LEVEL_LABEL } from '../companion/annotations';
+import { Suggestion, SuggestionLevel, LEVEL_LABEL } from '../companion/annotations';
 
 export interface ContextEntry {
   time: number;
   file: string;
   line?: number;
-  level: number;
+  level: SuggestionLevel;
   title: string;
   detail: string;
   viewedAt?: number; // 用户在面板里查看过这条（点「在面板中查看」/ L3 自动展开）
@@ -53,11 +53,14 @@ export class SharedContext {
     if (this.entries.length === 0) {
       return '';
     }
-    return this.entries
-      .map(
-        (e) =>
-          `- [L${e.level} ${LEVEL_LABEL[e.level as 1 | 2 | 3]}] ${e.file}${e.line ? `:${e.line}` : ''} ${e.title} — ${e.detail}${e.viewedAt ? '（← 用户正在看这条）' : ''}`
-      )
-      .join('\n');
+    return this.entries.map(formatEntry).join('\n');
   }
+}
+
+// 每条建议的 prompt 行：抽出来命名，输出字符串与原来一字不差（这是注入 system prompt 的内容）
+function formatEntry(e: ContextEntry): string {
+  const level = LEVEL_LABEL[e.level];
+  const location = e.line ? `${e.file}:${e.line}` : e.file;
+  const viewed = e.viewedAt ? '（← 用户正在看这条）' : '';
+  return `- [L${e.level} ${level}] ${location} ${e.title} — ${e.detail}${viewed}`;
 }
