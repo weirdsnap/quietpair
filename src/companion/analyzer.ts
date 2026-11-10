@@ -161,7 +161,7 @@ export class Analyzer {
     if (!apiKey) {
       if (!this.keyWarned) {
         this.keyWarned = true;
-        this.deps.onNotice('Companion mode needs an API key. Click "🔑 API Key" above to set one.');
+        this.deps.onNotice('Companion mode needs an API key. Open Settings below to set one.');
       }
       return null;
     }
