@@ -42,4 +42,17 @@ describe('EditTracker', () => {
     expect(t.editedAfter('f1099.ts', 0)).toBe(true); // 最新的还在
     expect(t.editedAfter('f0.ts', 0)).toBe(false); // 最旧的被裁
   });
+
+  // 边界值：恰好封顶值不裁剪，+1 才触发（时间戳从 1 起：editedAfter 是严格大于，0 时刻不算「之后」）
+  it('恰好 1000 个文件不裁剪，第 1001 个触发裁剪', () => {
+    const t = new EditTracker();
+    for (let i = 1; i <= 1000; i++) {
+      t.recordEdit(`f${i}.ts`, i);
+    }
+    expect(t.size).toBe(1000);
+    expect(t.editedAfter('f1.ts', 0)).toBe(true); // 不裁，最旧的还在
+    t.recordEdit('f1001.ts', 1001); // 第 1001 个 → 砍掉最旧一半
+    expect(t.size).toBe(501);
+    expect(t.editedAfter('f1.ts', 0)).toBe(false);
+  });
 });

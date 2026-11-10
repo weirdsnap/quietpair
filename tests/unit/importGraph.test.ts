@@ -121,4 +121,40 @@ describe('ImportGraph', () => {
     g.updateFile('src\\a.ts', 'typescript', `import './b';`);
     expect(g.related('src/a.ts')).toEqual([{ file: 'src/b.ts', why: 'imported by this file' }]);
   });
+
+  // 等价类补充：自引用 / 循环引用 / 解析失败 / 上窜钳制——
+  // 每个类一个代表，钉死「不产生坏边、不产生环、不抛异常」
+  describe('等价类：异常形态的引用', () => {
+    it('自引用不产生边', () => {
+      const g = graphWith({
+        'a.ts': { lang: 'typescript', text: `import './a';` },
+      });
+      expect(g.related('a.ts')).toEqual([]);
+    });
+
+    it('循环引用：双向边都建立，标签按先出边优先', () => {
+      const g = graphWith({
+        'a.ts': { lang: 'typescript', text: `import './b';` },
+        'b.ts': { lang: 'typescript', text: `import './a';` },
+      });
+      // a → b 与 b → a 同时存在；related 的 why 先填出边标签，入边不覆盖
+      expect(g.related('a.ts')).toEqual([{ file: 'b.ts', why: 'imported by this file' }]);
+      expect(g.related('b.ts')).toEqual([{ file: 'a.ts', why: 'imported by this file' }]);
+    });
+
+    it('解析失败的相对引用静默跳过', () => {
+      const g = graphWith({
+        'a.ts': { lang: 'typescript', text: `import './ghost';` },
+      });
+      expect(g.related('a.ts')).toEqual([]);
+    });
+
+    it('../ 上窜超出根目录时钳制在根，不抛异常', () => {
+      const g = graphWith({
+        'src/deep/mod/a.ts': { lang: 'typescript', text: `import '../../../../../b';` },
+        'b.ts': { lang: 'typescript', text: `` },
+      });
+      expect(g.related('src/deep/mod/a.ts')).toEqual([{ file: 'b.ts', why: 'imported by this file' }]);
+    });
+  });
 });

@@ -165,6 +165,7 @@
     "@types/vscode": "^1.95.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
+    "fast-check": "^4.10.2",
     "typescript": "^5.6.0",
     "vitest": "^5.0.1"
   }
