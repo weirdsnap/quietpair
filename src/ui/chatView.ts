@@ -2,7 +2,7 @@
  * 侧边栏聊天面板（Webview）的后端。
  * - 持有单会话对话历史（workspaceState 持久化：一个项目一条持续线程）
  * - 组装 system prompt：伙伴人设 + 项目记忆 + 守望上下文
- * - 驱动 Agent 工具循环，处理审批、打断/插话、历史压缩
+ * - 驱动 Agent 工具循环，处理审批、打断/插话、历史压缩（发言一律经 SendQueue 串行化）
  * - 与 media/chat.js 前端通信（消息流、设置页、建议卡片）
  */
 import * as vscode from 'vscode';
@@ -13,6 +13,7 @@ import type { ToolContext } from '../agent/tools';
 import { getConfig, getApiKey, promptForApiKey, API_KEY_SECRET, languageDirective, learningMode } from '../core/config';
 import { SharedContext } from '../memory/sharedContext';
 import { Logger } from '../core/logger';
+import { SendQueue } from '../core/sendQueue';
 import { UsageTracker } from '../core/usage';
 import { memoryStore, MEMORY_TEMPLATE } from '../memory/store';
 import { detectMemoryCommand } from '../memory/detect';
@@ -46,6 +47,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private initInFlight = false;
   // 手动压缩进行中（与 handleSend 互斥：压缩会整体替换 history）
   private compacting = false;
+  private compactWaiters: Array<() => void> = [];
+  // 发言的唯一入口：串行消费，杜绝并发 handleSend（竞态会丢消息/毁 history）
+  private readonly sendQueue: SendQueue;
 
   // Agent 跑完且期间写过文件时触发（交给守望模式复审）
   onFilesWritten?: (absolutePaths: string[]) => void;
@@ -77,6 +81,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.usage.onChange = () => this.postUsage();
     // Activity 视图的实时推送：logger 是唯一事件源，面板只是订阅者
     this.logger.onEvent((entry) => this.post({ type: 'activityEvent', entry }));
+    this.sendQueue = new SendQueue({
+      consume: (text) => this.handleSend(text),
+      isRunning: () => this.running,
+      interrupt: () => this.stopRun(),
+      waitWhileCompacting: () =>
+        this.compacting ? new Promise<void>((resolve) => this.compactWaiters.push(resolve)) : Promise.resolve(),
+      onError: (err) => this.logger.error(`send queue consume failed: ${err instanceof Error ? err.message : String(err)}`),
+    });
   }
 
   // 工具栏小计数：本次会话 + 累计（按来源细分放 tooltip）
@@ -117,6 +129,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     this.stopRun();
+    // 排队中的发言属于这场对话，随清空一起作废（用户已确认过破坏性操作）
+    const discarded = this.sendQueue.discardAll();
+    if (discarded.length > 0) {
+      this.logger.event('lifecycle', { summary: `clear discarded ${discarded.length} queued message(s)` });
+    }
     // 等被打断的任务收尾（它会发 interrupted/done 消息），再清面板，顺序错了会有幽灵气泡
     if (this.running) {
       await new Promise<void>((resolve) => this.abortWaiters.push(resolve));
@@ -155,7 +172,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // 让它自我修正。不抢面板焦点（区别于 askAgent），过程在面板可见、可打断
   async observerFollowUp(text: string): Promise<void> {
     this.logger.event('lifecycle', { summary: `observer follow-up: ${text.slice(0, 200)}` });
-    await this.handleSend(text);
+    this.sendQueue.enqueue(text);
   }
 
   // 从编辑器一键发起讨论：面板弹出 + 建议进入引用 chip，用户输入问题即可
@@ -166,7 +183,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async askAgent(text: string): Promise<void> {
     this.view?.show(true);
-    await this.handleSend(text);
+    this.sendQueue.enqueue(text);
   }
 
   // init：先让用户选模式（代码层确定性分支，不依赖模型自觉）——
@@ -214,7 +231,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         : answer.startsWith('B.')
           ? INIT_PROMPT
           : GUIDE_PROMPT;
-      await this.handleSend(supplement + script);
+      this.sendQueue.enqueue(supplement + script);
     } finally {
       this.initInFlight = false;
     }
@@ -313,7 +330,7 @@ ${summary}`;
   // 压缩：历史太长时把旧轮次蒸馏成摘要，近期保持原文（对标 Claude Code 的 compaction）。
   // 同一次蒸馏顺带做记忆沉淀：值得长期记住的条目按分区合并进 memory.md（增量合并，不覆写人类编辑）
   // force = 用户手动触发（跳过长度阈值，但消息数太少仍不压）。返回是否真的压缩了
-  private async compactIfNeeded(baseUrl: string, apiKey: string, model: string, force = false): Promise<boolean> {
+  private async compactIfNeeded(baseUrl: string, apiKey: string, model: string, force = false, signal?: AbortSignal): Promise<boolean> {
     if (this.history.length <= COMPACT_KEEP_RECENT + 2) {
       return false; // 消息太少，压了也没意义
     }
@@ -339,6 +356,7 @@ ${summary}`;
         baseUrl,
         apiKey,
         model,
+        signal, // 自动压缩在发言流程内：插话打断要能停掉它，否则新消息得干等一整轮
         messages: [
           {
             role: 'user',
@@ -391,7 +409,10 @@ ${serialized}`,
       });
       return true;
     } catch (err) {
-      this.logger.error(`compaction failed: ${err instanceof Error ? err.message : String(err)}`);
+      // 打断中止不算失败（history 原样未动），和真正的压缩错误分开记
+      this.logger.error(
+        signal?.aborted ? 'compaction aborted (interrupted)' : `compaction failed: ${err instanceof Error ? err.message : String(err)}`
+      );
       return false;
     }
   }
@@ -421,6 +442,12 @@ ${serialized}`,
       }
     } finally {
       this.compacting = false;
+      // 放行压缩期间排进队列的发言（SendQueue 在等这个信号）
+      const waiters = this.compactWaiters;
+      this.compactWaiters = [];
+      for (const resolve of waiters) {
+        resolve();
+      }
     }
   }
 
@@ -541,7 +568,8 @@ ${serialized}`,
     switch (msg.type) {
       case 'send':
         if (msg.text) {
-          await this.handleSend(msg.text);
+          // 入队即返回：串行消费交给 SendQueue，这里 await 会造成 handleMessage 重入
+          this.sendQueue.enqueue(msg.text);
         }
         break;
       case 'approve': {
@@ -584,10 +612,17 @@ ${serialized}`,
         }
         break;
       }
-      case 'stop':
+      case 'stop': {
         this.stopRun();
         this.logger.event('interrupt', { summary: 'user pressed stop' });
+        // ■ = 全停：排队里的消息一并作废，但必须把原文亮出来，不能静默吞掉
+        const discarded = this.sendQueue.discardAll();
+        if (discarded.length > 0) {
+          this.logger.event('lifecycle', { summary: `stop discarded ${discarded.length} queued message(s)` });
+          this.note('🛑 Stopped — queued message(s) discarded', discarded.map((t) => `• ${t.slice(0, 120)}`).join('\n'));
+        }
         break;
+      }
       case 'setApiKey':
         await vscode.commands.executeCommand('vs-agent.setApiKey');
         break;
@@ -670,12 +705,9 @@ ${serialized}`,
     }
   }
 
+  // 只允许经 SendQueue 调用：串行消费保证了「不在压缩中、不并发」，
+  // 这里的 running 分支只是防御——正常路径下入队时已触发打断，pump 等收尾后才轮到下一条
   private async handleSend(text: string): Promise<void> {
-    // 压缩进行中会整体替换 history，等它完事再发
-    if (this.compacting) {
-      this.post({ type: 'error', message: 'Compaction in progress — try again in a moment.' });
-      return;
-    }
     // 结对编程式插话：AI 正在干活时发消息 = 先打断当前任务，再说新的
     if (this.running) {
       this.stopRun();
@@ -717,10 +749,12 @@ ${serialized}`,
     if (!(await memoryStore.read()).trim()) {
       await memoryStore.write(MEMORY_TEMPLATE).catch(() => undefined);
     }
-    await this.compactIfNeeded(config.baseUrl, apiKey, config.model);
-    this.history[0] = { role: 'system', content: await this.buildSystemPrompt() };
+    // AbortController 先于自动压缩建立：压缩期间的插话能立刻停掉压缩，
+    // 否则用户以为打断了，实际要等压缩+原消息整轮跑完（看起来像排队消息丢了）
     const abort = new AbortController();
     this.currentAbort = abort;
+    await this.compactIfNeeded(config.baseUrl, apiKey, config.model, false, abort.signal);
+    this.history[0] = { role: 'system', content: await this.buildSystemPrompt() };
     this.post({ type: 'busy', busy: true });
     try {
       await runAgent(text, this.history, { ...config, apiKey, signal: abort.signal }, {

@@ -23,6 +23,8 @@ src/
 │   ├── importGraph.ts      import 关系图（纯模块）：正则解析 + 相对路径解析的双向文件索引
 │   │                       （召回优先启发式），支撑确认修复的候选修复现场圈定
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
+│   ├── sendQueue.ts        发言串行队列（纯类）：单消费者泵——所有 handleSend 入口统一经此，
+│   │                       打断语义在入队时表达；压缩期等待、显式丢弃交出原文
 │   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换 + 记忆指令检测事件，
 │   │                       全走 logger 落 transcript（kind: metric）——评测/个性化的数据底子
 │   └── logger.ts           Output 面板实时日志 + JSONL transcript 落盘；每条事件打 track
@@ -156,7 +158,9 @@ onDidSaveTextDocument
   → NO / 出错 → 静默
 ```
 
-**打断**：任一侧发消息即触发。用户侧通过 AbortSignal 全链路中止（流/工具循环/待审批），半成品发言标记 `[用户打断了这里]` 留存历史。
+**打断**：任一侧发消息即触发。用户侧通过 AbortSignal 全链路中止（流/工具循环/待审批/自动压缩），半成品发言标记 `[用户打断了这里]` 留存历史。
+
+**发言串行化**：所有进 handleSend 的入口（用户输入、守望回灌、init 剧本）统一经 `core/sendQueue.ts` 单消费者泵——连发多条不会并发进 runAgent（并发会互相覆盖 currentAbort、共享 history 被两个 run 同时写）。打断语义在入队时表达：正在跑就叫停当前轮，泵收尾后接下一条；手动压缩期间消息留队等待（`compactWaiters`），不再丢弃；显式 Stop/清空会作废队列并如实列出原文。自动压缩也挂 AbortSignal（压缩请求可被打断），否则压缩窗口内插话会"看起来丢了"。
 
 ## 记忆三层
 
