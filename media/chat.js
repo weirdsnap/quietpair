@@ -7,57 +7,11 @@
   let currentAssistant = null;
   let hasMessages = false;
 
-  // ---- 迷你富文本渲染：代码围栏、表格、行内代码、加粗（零依赖，CSP 安全） ----
+  // ---- 富文本渲染：纯逻辑在 media/mdrender.js（可单测），这里只做 DOM 组装 ----
 
-  function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function renderInline(escaped) {
-    // 先按行内代码切段：代码段内不做链接/加粗替换。链接一次扫描两种形态——
-    // markdown 链接优先匹配（它的 URL 随之被整体消费），裸 URL 不会匹配进已生成的标签里
-    return escaped
-      .split(/(`[^`\n]+`)/g)
-      .map(function (seg, i) {
-        if (i % 2 === 1) {
-          return '<code>' + seg.slice(1, -1) + '</code>';
-        }
-        return seg
-          .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<()"'`]+)/g, function (m, text, mdUrl, bareUrl) {
-            if (mdUrl) {
-              return '<a href="' + mdUrl + '" target="_blank" rel="noreferrer">' + text + '</a>';
-            }
-            // 裸 URL 末尾的句读标点（句子结尾的 . , 等）不属于 URL
-            let trail = '';
-            let u = bareUrl;
-            while (u && /[.,;:!?]/.test(u.charAt(u.length - 1))) {
-              trail = u.charAt(u.length - 1) + trail;
-              u = u.slice(0, -1);
-            }
-            return '<a href="' + u + '" target="_blank" rel="noreferrer">' + u + '</a>' + trail;
-          })
-          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      })
-      .join('');
-  }
-
-  // markdown 表格分隔行：| --- | :-: | ---: | 这类
-  function isTableSeparator(line) {
-    return /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(line) && line.indexOf('-') !== -1;
-  }
-
-  function splitRow(line) {
-    let l = line.trim();
-    if (l.charAt(0) === '|') {
-      l = l.slice(1);
-    }
-    if (l.charAt(l.length - 1) === '|') {
-      l = l.slice(0, -1);
-    }
-    return l.split('|').map(function (c) {
-      return c.trim();
-    });
-  }
+  const escapeHtml = MdRender.escapeHtml;
+  const renderInline = MdRender.renderInline;
+  const splitRow = MdRender.splitRow;
 
   function appendTable(el, lines) {
     const header = splitRow(lines[0]);
@@ -87,51 +41,24 @@
     el.appendChild(table);
   }
 
-  // 非代码段：按行扫描，连续的表格行收成 <table>，其余按普通文本（保留换行）
+  // 非代码段：splitBlocks 分块（纯逻辑），表格走 appendTable，文本走行内渲染
   function appendRichText(el, text) {
-    const lines = text.split('\n');
-    let buf = [];
-    function flush() {
-      const plain = buf.join('\n');
-      buf = [];
-      if (!plain.trim()) {
+    MdRender.splitBlocks(text).forEach(function (b) {
+      if (b.type === 'table') {
+        appendTable(el, b.lines);
         return;
       }
       const div = document.createElement('div');
       div.className = 'rich-text';
-      div.innerHTML = renderInline(escapeHtml(plain));
+      div.innerHTML = renderInline(escapeHtml(b.text));
       el.appendChild(div);
-    }
-    let i = 0;
-    while (i < lines.length) {
-      // 表格起点：本行含 | 且下一行是分隔行
-      if (lines[i].indexOf('|') !== -1 && lines[i].trim() && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
-        flush();
-        const tbl = [lines[i], lines[i + 1]];
-        i += 2;
-        while (i < lines.length && lines[i].trim() && lines[i].indexOf('|') !== -1) {
-          tbl.push(lines[i]);
-          i++;
-        }
-        appendTable(el, tbl);
-      } else {
-        buf.push(lines[i]);
-        i++;
-      }
-    }
-    flush();
+    });
   }
 
   function renderRich(el, text) {
     el.innerHTML = '';
-    const parts = text.split('```');
-    parts.forEach(function (part, i) {
-      if (i % 2 === 1) {
-        let code = part;
-        const nl = part.indexOf('\n');
-        if (nl > 0 && nl <= 20 && !part.slice(0, nl).includes(' ')) {
-          code = part.slice(nl + 1); // 首行是语言标记
-        }
+    MdRender.splitFences(text).forEach(function (seg) {
+      if (seg.type === 'code') {
         const wrap = document.createElement('div');
         wrap.className = 'code-wrap';
         const copyBtn = document.createElement('button');
@@ -140,7 +67,7 @@
         copyBtn.title = 'Copy code';
         const pre = document.createElement('pre');
         pre.className = 'code-block';
-        pre.textContent = code.replace(/\n$/, '');
+        pre.textContent = seg.content;
         copyBtn.addEventListener('click', function () {
           copyText(pre.textContent || '');
           copyBtn.textContent = '✓ Copied';
@@ -152,7 +79,7 @@
         wrap.appendChild(pre);
         el.appendChild(wrap);
       } else {
-        appendRichText(el, part);
+        appendRichText(el, seg.content);
       }
     });
   }

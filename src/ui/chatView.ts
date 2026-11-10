@@ -16,6 +16,7 @@ import { Logger } from '../core/logger';
 import { UsageTracker } from '../core/usage';
 import { memoryStore, MEMORY_TEMPLATE } from '../memory/store';
 import { detectMemoryCommand } from '../memory/detect';
+import { historyToReplayEntries, SUMMARY_PREFIX } from './replay';
 import type { Suggestion } from '../companion/annotations';
 import type { Telemetry } from '../core/telemetry';
 
@@ -89,26 +90,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   // 会话回放（webview 重载/VS Code 重启后）：history 一直在喂模型，界面不该空白——
-  // 「AI 记得、用户看不到」是数据与视图不一致。只回放用户与助手文本；
-  // 压缩摘要消息降级为 note 卡；工具调用等过程性内容留在 Activity 视图与 transcript
+  // 「AI 记得、用户看不到」是数据与视图不一致。映射逻辑抽在 replay.ts（纯函数）：
+  // 只回放用户与助手文本；压缩摘要降级为 note 卡；过程性内容留在 Activity 视图
   private replayHistory(): void {
-    const SUMMARY_PREFIX = '[此前对话的压缩摘要]';
-    const entries: { kind: 'user' | 'assistant' | 'note'; title?: string; text: string }[] = [];
-    for (const m of this.history) {
-      if (m.role === 'user' && typeof m.content === 'string' && m.content.trim()) {
-        if (m.content.startsWith(SUMMARY_PREFIX)) {
-          entries.push({
-            kind: 'note',
-            title: '🗜 Earlier conversation (compacted summary)',
-            text: m.content.slice(SUMMARY_PREFIX.length).trim(),
-          });
-        } else {
-          entries.push({ kind: 'user', text: m.content });
-        }
-      } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) {
-        entries.push({ kind: 'assistant', text: m.content });
-      }
-    }
+    const entries = historyToReplayEntries(this.history);
     if (entries.length > 0) {
       this.post({ type: 'history', entries });
     }
@@ -391,7 +376,7 @@ ${serialized}`,
         : [];
       this.history = [
         this.history[0],
-        { role: 'user', content: `[此前对话的压缩摘要]\n${summary}` },
+        { role: 'user', content: `${SUMMARY_PREFIX}\n${summary}` },
         ...recent,
       ];
       const added = await memoryStore.appendEntries(additions);
@@ -816,6 +801,7 @@ ${serialized}`,
 
   private getHtml(webview: vscode.Webview): string {
     const nonce = String(Date.now()) + Math.random().toString(36).slice(2);
+    const mdrenderUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'mdrender.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'chat.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'chat.css'));
 
@@ -940,6 +926,7 @@ ${serialized}`,
       <button id="send" title="Send (Enter)">↑</button>
     </div>
   </div>
+  <script nonce="${nonce}" src="${mdrenderUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

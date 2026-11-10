@@ -75,8 +75,9 @@ src/
                             每次运行发 chat-N 作 turnId，把这轮的思考/工具/审批/回答圈成闭环
 
 media/
-├── chat.js                 Webview 前端：消息渲染（迷你 markdown：围栏/表格/链接/行内样式）、
-│                           reasoning 思考流折叠块、流式合帧渲染 + 上翻暂停吸底、
+├── mdrender.js             迷你 markdown 渲染纯逻辑（UMD，可单测）：围栏/表格/链接/行内样式
+├── chat.js                 Webview 前端：DOM 组装（渲染逻辑走 mdrender）、reasoning 思考流折叠块、
+│                           流式合帧渲染 + 上翻暂停吸底、
 │                           Activity 视图（统一事件流：轨道过滤芯片 + turnId 分组 + 实时推送）、交互
 └── chat.css                样式（全部使用 VS Code 主题变量）
 ```
