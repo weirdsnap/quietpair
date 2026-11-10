@@ -14,9 +14,31 @@
   }
 
   function renderInline(escaped) {
+    // 先按行内代码切段：代码段内不做链接/加粗替换。链接一次扫描两种形态——
+    // markdown 链接优先匹配（它的 URL 随之被整体消费），裸 URL 不会匹配进已生成的标签里
     return escaped
-      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      .split(/(`[^`\n]+`)/g)
+      .map(function (seg, i) {
+        if (i % 2 === 1) {
+          return '<code>' + seg.slice(1, -1) + '</code>';
+        }
+        return seg
+          .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<()"'`]+)/g, function (m, text, mdUrl, bareUrl) {
+            if (mdUrl) {
+              return '<a href="' + mdUrl + '" target="_blank" rel="noreferrer">' + text + '</a>';
+            }
+            // 裸 URL 末尾的句读标点（句子结尾的 . , 等）不属于 URL
+            let trail = '';
+            let u = bareUrl;
+            while (u && /[.,;:!?]/.test(u.charAt(u.length - 1))) {
+              trail = u.charAt(u.length - 1) + trail;
+              u = u.slice(0, -1);
+            }
+            return '<a href="' + u + '" target="_blank" rel="noreferrer">' + u + '</a>' + trail;
+          })
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      })
+      .join('');
   }
 
   // markdown 表格分隔行：| --- | :-: | ---: | 这类
@@ -110,14 +132,52 @@
         if (nl > 0 && nl <= 20 && !part.slice(0, nl).includes(' ')) {
           code = part.slice(nl + 1); // 首行是语言标记
         }
+        const wrap = document.createElement('div');
+        wrap.className = 'code-wrap';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.title = 'Copy code';
         const pre = document.createElement('pre');
         pre.className = 'code-block';
         pre.textContent = code.replace(/\n$/, '');
-        el.appendChild(pre);
+        copyBtn.addEventListener('click', function () {
+          copyText(pre.textContent || '');
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(function () {
+            copyBtn.textContent = 'Copy';
+          }, 1200);
+        });
+        wrap.appendChild(copyBtn);
+        wrap.appendChild(pre);
+        el.appendChild(wrap);
       } else {
         appendRichText(el, part);
       }
     });
+  }
+
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(undefined, function () {
+        fallbackCopy(t);
+      });
+    } else {
+      fallbackCopy(t);
+    }
+  }
+
+  function fallbackCopy(t) {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+    } catch (e) {
+      // 剪贴板不可用时静默：按钮已给不了反馈，不追加打扰
+    }
+    ta.remove();
   }
 
   // ---- 消息流 ----
@@ -145,8 +205,50 @@
     currentAssistant = null;
   }
 
-  function scrollToBottom() {
-    messages.scrollTop = messages.scrollHeight;
+  // 用户上翻读历史时暂停吸底（流式输出不再把人拽回去）；回到底部附近自动恢复
+  let userPinnedUp = false;
+  messages.addEventListener('scroll', function () {
+    userPinnedUp = messages.scrollHeight - messages.scrollTop - messages.clientHeight > 60;
+  });
+
+  function scrollToBottom(force) {
+    if (force || !userPinnedUp) {
+      messages.scrollTop = messages.scrollHeight;
+      userPinnedUp = false;
+    }
+  }
+
+  // 流式渲染合帧：token 来得密，50ms 一帧重渲染就够，避免每条 delta 全量重解析的 O(n²) 卡顿。
+  // 关键是收尾路径必须 flush——气泡引用随后就被置空，pending 的一帧不能丢
+  let renderTimer = null;
+
+  function flushAssistantRender() {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+      renderTimer = null;
+    }
+    if (currentAssistant) {
+      renderRich(currentAssistant, currentAssistant.dataset.raw || '');
+    }
+  }
+
+  function scheduleAssistantRender() {
+    if (renderTimer) {
+      return;
+    }
+    renderTimer = setTimeout(function () {
+      renderTimer = null;
+      if (currentAssistant) {
+        renderRich(currentAssistant, currentAssistant.dataset.raw || '');
+        scrollToBottom();
+      }
+    }, 50);
+  }
+
+  // 所有「这轮助手输出结束」的出口统一走这里：先把最后一帧画出来再置空
+  function endAssistant() {
+    flushAssistantRender();
+    currentAssistant = null;
   }
 
   function addBubble(cls, text) {
@@ -449,9 +551,10 @@
       clearQuote();
     }
     addBubble('user', display);
+    scrollToBottom(true); // 用户自己发言：强制回到底部
     vscode.postMessage({ type: 'send', text: outgoing });
     input.value = '';
-    currentAssistant = null;
+    endAssistant();
   }
 
   sendBtn.addEventListener('click', send);
@@ -494,7 +597,7 @@
   document.getElementById('init-btn').addEventListener('click', function () {
     addBubble('user', 'Get familiar with this project and build the initial memory.');
     vscode.postMessage({ type: 'initProject' });
-    currentAssistant = null;
+    endAssistant();
   });
   document.getElementById('analyze-btn').addEventListener('click', function () {
     vscode.postMessage({ type: 'analyzeNow' });
@@ -866,8 +969,7 @@
           currentAssistant.dataset.raw = '';
         }
         currentAssistant.dataset.raw += msg.text;
-        renderRich(currentAssistant, currentAssistant.dataset.raw);
-        scrollToBottom();
+        scheduleAssistantRender();
         break;
       case 'reasoning':
         if (!currentReasoning) {
@@ -879,28 +981,28 @@
       case 'toolStart':
         finishReasoning();
         addToolEvent(msg.name, msg.args, false);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'toolResult':
         addToolEvent(msg.name, msg.result, true);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'confirm':
         finishReasoning();
         finishToolGroup();
         addConfirmBubble(msg.id, msg.action, msg.detail);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'choice':
         finishReasoning();
         finishToolGroup();
         addChoiceBubble(msg.id, msg.question, msg.options || []);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'done':
         finishReasoning();
         finishToolGroup();
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'interrupted': {
         finishReasoning();
@@ -908,14 +1010,14 @@
         const entry = buildSuggestionCard('⏹ Stopped');
         entry.body.textContent = '(was ' + (msg.activity || 'composing reply') + ') — go ahead, I am listening.';
         scrollToBottom();
-        currentAssistant = null;
+        endAssistant();
         break;
       }
       case 'error':
         finishReasoning();
         finishToolGroup();
         addBubble('error', msg.message);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'busy':
         setBusy(msg.busy);
@@ -923,24 +1025,24 @@
       case 'suggestionStart':
         finishToolGroup();
         onSuggestionStart(msg.id, msg.file, msg.label);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'suggestionEnd':
         onSuggestionEnd(msg.id, msg.file, msg.content);
-        currentAssistant = null;
+        endAssistant();
         break;
       case 'note': {
         finishToolGroup();
         const entry = buildSuggestionCard(msg.title);
         renderRich(entry.body, msg.text);
         scrollToBottom();
-        currentAssistant = null;
+        endAssistant();
         break;
       }
       case 'suggestionCard':
         finishToolGroup();
         renderSuggestionCard(msg);
-        currentAssistant = null;
+        endAssistant();
         break;
       // 主动记忆指令的轻卡：可忽略；点 Remember it 才落盘（后端去重，重复会回 Already in memory）
       case 'memoryCandidate': {
@@ -961,7 +1063,7 @@
         row.appendChild(btn);
         entry.body.appendChild(row);
         scrollToBottom();
-        currentAssistant = null;
+        endAssistant();
         break;
       }
       case 'companionState':
@@ -1017,6 +1119,23 @@
         if (activityOpen && activityMatches(msg.entry)) {
           appendActivityEntry(msg.entry);
         }
+        break;
+      }
+      // 会话回放（重启/重载后）：模型一直记得，界面不该空白。
+      // 只回放用户与助手文本——工具调用/审批等过程性内容留在 Activity 视图与 transcript
+      case 'history': {
+        (msg.entries || []).forEach(function (entry) {
+          if (entry.kind === 'user') {
+            addBubble('user', entry.text);
+          } else if (entry.kind === 'assistant') {
+            const b = addBubble('assistant', '');
+            renderRich(b, entry.text);
+          } else if (entry.kind === 'note') {
+            const card = buildSuggestionCard(entry.title || 'Note');
+            renderRich(card.body, entry.text);
+          }
+        });
+        scrollToBottom(true);
         break;
       }
       case 'cleared':

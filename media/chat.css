@@ -228,6 +228,17 @@ body {
   border-radius: 4px;
 }
 
+.rich-text a,
+.md-table a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: underline;
+}
+
+.code-wrap {
+  position: relative;
+  margin: 6px 0;
+}
+
 .code-block {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 12px;
@@ -235,9 +246,33 @@ body {
   border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
   border-radius: 6px;
   padding: 8px 10px;
-  margin: 6px 0;
+  margin: 0;
   overflow-x: auto;
   white-space: pre;
+}
+
+.code-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 10px;
+  padding: 1px 8px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.3));
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.code-wrap:hover .code-copy,
+.code-copy:focus-visible {
+  opacity: 1;
+}
+
+.code-copy:hover {
+  color: var(--vscode-foreground);
 }
 
 /* ---- markdown 表格 ---- */

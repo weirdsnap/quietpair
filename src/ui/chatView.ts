@@ -88,6 +88,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  // 会话回放（webview 重载/VS Code 重启后）：history 一直在喂模型，界面不该空白——
+  // 「AI 记得、用户看不到」是数据与视图不一致。只回放用户与助手文本；
+  // 压缩摘要消息降级为 note 卡；工具调用等过程性内容留在 Activity 视图与 transcript
+  private replayHistory(): void {
+    const SUMMARY_PREFIX = '[此前对话的压缩摘要]';
+    const entries: { kind: 'user' | 'assistant' | 'note'; title?: string; text: string }[] = [];
+    for (const m of this.history) {
+      if (m.role === 'user' && typeof m.content === 'string' && m.content.trim()) {
+        if (m.content.startsWith(SUMMARY_PREFIX)) {
+          entries.push({
+            kind: 'note',
+            title: '🗜 Earlier conversation (compacted summary)',
+            text: m.content.slice(SUMMARY_PREFIX.length).trim(),
+          });
+        } else {
+          entries.push({ kind: 'user', text: m.content });
+        }
+      } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) {
+        entries.push({ kind: 'assistant', text: m.content });
+      }
+    }
+    if (entries.length > 0) {
+      this.post({ type: 'history', entries });
+    }
+  }
+
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = {
@@ -625,6 +651,7 @@ ${serialized}`,
         this.postCompanionState();
         this.postUsage();
         await this.sendSettings();
+        this.replayHistory();
         break;
       case 'openLogs':
         await vscode.commands.executeCommand('vs-agent.openLogs');
