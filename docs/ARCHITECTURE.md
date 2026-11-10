@@ -75,7 +75,7 @@ src/
                             每次运行发 chat-N 作 turnId，把这轮的思考/工具/审批/回答圈成闭环
 
 media/
-├── mdrender.js             迷你 markdown 渲染纯逻辑（UMD，可单测）：围栏/表格/链接/行内样式
+├── mdrender.js             迷你 markdown 渲染纯逻辑（UMD，可单测）：围栏/表格/标题/列表/引用/链接/行内样式
 ├── chat.js                 Webview 前端：DOM 组装（渲染逻辑走 mdrender）、reasoning 思考流折叠块、
 │                           流式合帧渲染 + 上翻暂停吸底、
 │                           Activity 视图（统一事件流：轨道过滤芯片 + turnId 分组 + 实时推送）、交互

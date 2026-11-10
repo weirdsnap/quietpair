@@ -49,7 +49,7 @@ vs_agent/
 │       └── chatView.ts        # 侧边栏 Webview provider：聊天、建议卡片、审批交互
 ├── media/
 │   ├── icon.svg               # 活动栏图标
-│   ├── mdrender.js            # 迷你 markdown 渲染纯逻辑（UMD，可单测）：围栏/表格/链接/行内样式
+│   ├── mdrender.js            # 迷你 markdown 渲染纯逻辑（UMD，可单测）：围栏/表格/标题/列表/引用/链接/行内样式
 │   ├── chat.js                # 聊天界面前端逻辑（DOM 组装，渲染走 mdrender）
 │   └── chat.css               # 聊天界面样式（跟随 VS Code 主题变量）
 ├── docs/

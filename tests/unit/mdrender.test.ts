@@ -116,3 +116,46 @@ describe('splitBlocks', () => {
     expect(MdRender.splitBlocks('\n  \n')).toEqual([]);
   });
 });
+
+describe('splitBlocks：标题 / 列表 / 引用', () => {
+  it('标题按级别成块；# 后无空格不算标题', () => {
+    expect(MdRender.splitBlocks('# Big\n### Small\n#nope')).toEqual([
+      { type: 'heading', level: 1, text: 'Big' },
+      { type: 'heading', level: 3, text: 'Small' },
+      { type: 'text', text: '#nope' },
+    ]);
+  });
+
+  it('无序列表连续行收成一块', () => {
+    expect(MdRender.splitBlocks('- a\n- b\nplain')).toEqual([
+      { type: 'list', ordered: false, items: ['a', 'b'] },
+      { type: 'text', text: 'plain' },
+    ]);
+  });
+
+  it('有序列表；与无序混合时各自成块', () => {
+    expect(MdRender.splitBlocks('1. a\n2. b\n- c')).toEqual([
+      { type: 'list', ordered: true, items: ['a', 'b'] },
+      { type: 'list', ordered: false, items: ['c'] },
+    ]);
+  });
+
+  it('空行打断列表分组', () => {
+    expect(MdRender.splitBlocks('- a\n\n- b')).toEqual([
+      { type: 'list', ordered: false, items: ['a'] },
+      { type: 'list', ordered: false, items: ['b'] },
+    ]);
+  });
+
+  it('引用块：连续 > 行合并，剥前缀', () => {
+    expect(MdRender.splitBlocks('> first\n> second\nafter')).toEqual([
+      { type: 'quote', text: 'first\nsecond' },
+      { type: 'text', text: 'after' },
+    ]);
+  });
+
+  it('混合块保持顺序：标题 → 列表 → 表格', () => {
+    const blocks = MdRender.splitBlocks('# T\n- a\n| A |\n| --- |\n| 1 |');
+    expect(blocks.map((b) => b.type)).toEqual(['heading', 'list', 'table']);
+  });
+});

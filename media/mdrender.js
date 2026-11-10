@@ -83,8 +83,14 @@
     return out;
   }
 
-  // 文本段分块：连续表格行收成 table 块（表头行 + 分隔行 + 表体行），
-  // 其余累积为 text 块（全空白的块不产出）
+  // 块级语法识别（保守子集，服务 LLM 输出的常见形态）
+  const RE_HEADING = /^(#{1,6})\s+(.+)$/;
+  const RE_ULIST = /^\s*[-*•]\s+(.+)$/;
+  const RE_OLIST = /^\s*\d+[.)]\s+(.+)$/;
+  const RE_QUOTE = /^\s*>\s?(.*)$/;
+
+  // 文本段分块：表格/标题/列表/引用各自成块，其余累积为 text 块（全空白的块不产出）。
+  // 表格判定在最前——表格行含 |，必须先于其他行级规则尝试
   function splitBlocks(text) {
     const lines = text.split('\n');
     const out = [];
@@ -98,19 +104,52 @@
     }
     let i = 0;
     while (i < lines.length) {
-      if (lines[i].indexOf('|') !== -1 && lines[i].trim() && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const line = lines[i];
+      if (line.indexOf('|') !== -1 && line.trim() && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
         flush();
-        const tbl = [lines[i], lines[i + 1]];
+        const tbl = [line, lines[i + 1]];
         i += 2;
         while (i < lines.length && lines[i].trim() && lines[i].indexOf('|') !== -1) {
           tbl.push(lines[i]);
           i++;
         }
         out.push({ type: 'table', lines: tbl });
-      } else {
-        buf.push(lines[i]);
-        i++;
+        continue;
       }
+      const heading = line.match(RE_HEADING);
+      if (heading) {
+        flush();
+        out.push({ type: 'heading', level: heading[1].length, text: heading[2].trim() });
+        i++;
+        continue;
+      }
+      if (RE_ULIST.test(line) || RE_OLIST.test(line)) {
+        flush();
+        const ordered = RE_OLIST.test(line);
+        const items = [];
+        while (i < lines.length) {
+          const m = lines[i].match(ordered ? RE_OLIST : RE_ULIST);
+          if (!m) {
+            break;
+          }
+          items.push(m[1].trim());
+          i++;
+        }
+        out.push({ type: 'list', ordered: ordered, items: items });
+        continue;
+      }
+      if (RE_QUOTE.test(line)) {
+        flush();
+        const qlines = [];
+        while (i < lines.length && RE_QUOTE.test(lines[i])) {
+          qlines.push(lines[i].match(RE_QUOTE)[1]);
+          i++;
+        }
+        out.push({ type: 'quote', text: qlines.join('\n') });
+        continue;
+      }
+      buf.push(line);
+      i++;
     }
     flush();
     return out;

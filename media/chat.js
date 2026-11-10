@@ -15,6 +15,8 @@
 
   function appendTable(el, lines) {
     const header = splitRow(lines[0]);
+    const wrap = document.createElement('div');
+    wrap.className = 'md-table-wrap'; // 横向溢出时表格自己滚，不撑破面板
     const table = document.createElement('table');
     table.className = 'md-table';
     const thead = document.createElement('thead');
@@ -38,14 +40,40 @@
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    el.appendChild(table);
+    wrap.appendChild(table);
+    el.appendChild(wrap);
   }
 
-  // 非代码段：splitBlocks 分块（纯逻辑），表格走 appendTable，文本走行内渲染
+  // 非代码段：splitBlocks 分块（纯逻辑），这里只做 DOM 组装
   function appendRichText(el, text) {
     MdRender.splitBlocks(text).forEach(function (b) {
       if (b.type === 'table') {
         appendTable(el, b.lines);
+        return;
+      }
+      if (b.type === 'heading') {
+        const h = document.createElement('div');
+        h.className = 'md-h md-h' + b.level;
+        h.innerHTML = renderInline(escapeHtml(b.text));
+        el.appendChild(h);
+        return;
+      }
+      if (b.type === 'list') {
+        const list = document.createElement(b.ordered ? 'ol' : 'ul');
+        list.className = 'md-list';
+        b.items.forEach(function (item) {
+          const li = document.createElement('li');
+          li.innerHTML = renderInline(escapeHtml(item));
+          list.appendChild(li);
+        });
+        el.appendChild(list);
+        return;
+      }
+      if (b.type === 'quote') {
+        const q = document.createElement('div');
+        q.className = 'md-quote';
+        q.innerHTML = renderInline(escapeHtml(b.text));
+        el.appendChild(q);
         return;
       }
       const div = document.createElement('div');
@@ -183,6 +211,7 @@
     const div = document.createElement('div');
     div.className = 'msg ' + cls;
     div.textContent = text;
+    div.title = new Date().toLocaleString(); // 悬停看时刻，不占版面
     messages.appendChild(div);
     scrollToBottom();
     return div;
@@ -222,8 +251,9 @@
     d.className = 'tool-entry';
     const sum = document.createElement('summary');
     const icon = document.createElement('span');
-    icon.className = 'tool-icon';
+    icon.className = 'tool-icon ' + (done ? 'done' : 'running');
     icon.textContent = done ? '✔' : '⚙';
+    icon.title = done ? 'done' : 'running';
     const label = document.createElement('span');
     label.className = 'tool-name';
     label.textContent = name;
@@ -252,6 +282,8 @@
       if (entry) {
         entry.pre.textContent += '\n→ ' + text;
         entry.icon.textContent = '✔';
+        entry.icon.className = 'tool-icon done';
+        entry.icon.title = 'done';
       } else {
         appendToolEntry(g, name, '→ ' + text, true);
       }
@@ -652,8 +684,8 @@
       });
       row.appendChild(btn);
     }
-    deepenBtn('explain', '展开说说');
-    deepenBtn('example', '给个例子');
+    deepenBtn('explain', 'Explain more');
+    deepenBtn('example', 'Give an example');
     if (m.fix) {
       if (m.masked) {
         const fixDiv = document.createElement('div');
@@ -662,7 +694,7 @@
         entry.body.appendChild(fixDiv);
         const reveal = document.createElement('button');
         reveal.className = 'quote-btn';
-        reveal.textContent = '直接给方案';
+        reveal.textContent = 'Show me the fix';
         reveal.title = 'Reveal the suggested fix (local, no LLM call)';
         reveal.addEventListener('click', function () {
           // 本地动作不产生 LLM 调用，埋点必须主动回传，否则 transcript 里看不到这次「投降」

@@ -5,6 +5,14 @@ declare const MdRender: {
   isTableSeparator(line: string): boolean;
   splitRow(line: string): string[];
   splitFences(text: string): ({ type: 'code'; content: string } | { type: 'text'; content: string })[];
-  splitBlocks(text: string): ({ type: 'text'; text: string } | { type: 'table'; lines: string[] })[];
+  splitBlocks(
+    text: string
+  ): (
+    | { type: 'text'; text: string }
+    | { type: 'table'; lines: string[] }
+    | { type: 'heading'; level: number; text: string }
+    | { type: 'list'; ordered: boolean; items: string[] }
+    | { type: 'quote'; text: string }
+  )[];
 };
 export = MdRender;
