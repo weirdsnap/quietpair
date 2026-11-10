@@ -21,7 +21,9 @@ import { Analyzer } from './analyzer';
 import { SaveTriage } from './triage';
 import { classifyDelay, isSemanticallySettled } from './gate';
 import { decideSpeak } from './decision';
-import { isLineOutsideEdits } from '../core/lineDiff';
+import { decideConfirmGate } from './confirmGate';
+import { EditTracker } from '../core/editTracker';
+import { ImportGraph, languageIdFromPath } from '../core/importGraph';
 
 const MAX_REVIEW_FILES = 3;
 
@@ -36,9 +38,10 @@ export interface CompanionCallbacks {
   onUsage?(usage: TokenUsage): void;
 }
 
-// 「✓ 改好了」的四种结局：聊天在跑 → busy；文件没变化但当前内容刚分析过 → unchanged
-//（现有标注就是最新判断，无需再调 LLM）；改动离建议很远（diff 确定性判定）→ untouched
-//（问题区域逐字节没变，免 LLM 复审）；真正复审出新结果 → reviewed
+// 「✓ 改好了」的四种结局：聊天在跑 → busy；建议打出后全工作区都没动过 → unchanged
+//（现有标注就是最新判断，无需再调 LLM）；本文件的改动离建议很远且相关文件也没动 → untouched
+//（diff 确定性判定：问题区域逐字节没变，免 LLM 复审）；真正复审出新结果 → reviewed
+// 闸门逻辑抽在 confirmGate.ts（纯函数）：确定性分支只在「相关范围内什么都没动」时结论
 export type ConfirmResult =
   | { status: 'busy' }
   | { status: 'unchanged' }
@@ -52,11 +55,19 @@ export class Companion implements vscode.Disposable {
   private watchCounter = 0;
   private readonly analyzer: Analyzer;
   private readonly triage: SaveTriage;
+  // 确认修复的诚实化基础设施：编辑追踪（建议打出后哪些文件动过）+ import 关系图（哪些文件相关）
+  private readonly editTracker = new EditTracker();
+  private readonly importGraph = new ImportGraph();
+  private scanTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
   private disposables: vscode.Disposable[] = [];
 
   private nextWatchId(): string {
     return `watch-${++this.watchCounter}`;
   }
+
+  private static readonly SCAN_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,py,c,cc,cpp,cxx,h,hh,hpp,go,java,kt}';
+  private static readonly SCAN_EXCLUDE = '**/{node_modules,.git,out,dist,build,.vscode-test}/**';
 
   constructor(private readonly callbacks: CompanionCallbacks, activity?: ActivityTracker) {
     this.analyzer = new Analyzer(
@@ -89,11 +100,14 @@ export class Companion implements vscode.Disposable {
       this.triage,
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.scheme === 'file' && e.contentChanges.length > 0) {
+          const rel = vscode.workspace.asRelativePath(e.document.uri);
+          this.editTracker.recordEdit(rel);
+          this.importGraph.updateFile(rel, e.document.languageId, e.document.getText());
           this.callbacks.onInvalidate(e.document.uri);
           this.retryCount = 0;
           const { delay, reason } = classifyDelay(e.contentChanges, this.quickTriggerMs(), this.debounceMs());
           this.callbacks.onDebug?.('trigger', {
-            file: vscode.workspace.asRelativePath(e.document.uri),
+            file: rel,
             reason,
             delayMs: delay,
             summary: `trigger: ${reason} → ${delay}ms`,
@@ -105,8 +119,73 @@ export class Companion implements vscode.Disposable {
         if (e && e.document.uri.scheme === 'file') {
           this.schedule();
         }
+      }),
+      vscode.workspace.onDidCreateFiles((e) => {
+        for (const u of e.files) {
+          this.trackNewFile(u);
+        }
+      }),
+      vscode.workspace.onDidDeleteFiles((e) => {
+        for (const u of e.files) {
+          this.importGraph.removeFile(vscode.workspace.asRelativePath(u));
+        }
+      }),
+      vscode.workspace.onDidRenameFiles((e) => {
+        for (const f of e.files) {
+          this.importGraph.removeFile(vscode.workspace.asRelativePath(f.oldUri));
+          this.trackNewFile(f.newUri);
+        }
       })
     );
+    void this.buildImportGraph();
+  }
+
+  // 新文件：登记路径 + 异步读内容解析 import（图是召回优先，读不了就只登记路径）
+  private trackNewFile(uri: vscode.Uri): void {
+    const rel = vscode.workspace.asRelativePath(uri);
+    this.importGraph.registerFile(rel);
+    void vscode.workspace.fs.readFile(uri).then(
+      (bytes) => this.importGraph.updateFile(rel, languageIdFromPath(uri.path), new TextDecoder().decode(bytes)),
+      () => undefined
+    );
+  }
+
+  // 启动后台扫描：先登记全部路径（解析候选集合），再分批读内容建边，避免阻塞激活
+  private async buildImportGraph(): Promise<void> {
+    if (!vscode.workspace.workspaceFolders?.length) {
+      return;
+    }
+    let uris: vscode.Uri[];
+    try {
+      uris = await vscode.workspace.findFiles(Companion.SCAN_GLOB, Companion.SCAN_EXCLUDE, 2000);
+    } catch {
+      return;
+    }
+    for (const u of uris) {
+      this.importGraph.registerFile(vscode.workspace.asRelativePath(u));
+    }
+    let i = 0;
+    const step = async (): Promise<void> => {
+      if (this.disposed) {
+        return;
+      }
+      const batch = uris.slice(i, (i += 25));
+      for (const u of batch) {
+        try {
+          const bytes = await vscode.workspace.fs.readFile(u);
+          if (bytes.byteLength > 256 * 1024) {
+            continue;
+          }
+          this.importGraph.updateFile(vscode.workspace.asRelativePath(u), languageIdFromPath(u.path), new TextDecoder().decode(bytes));
+        } catch {
+          // 读不动就跳过：召回优先的启发式，缺一条边只是少一个候选
+        }
+      }
+      if (i < uris.length) {
+        this.scanTimer = setTimeout(() => void step(), 50);
+      }
+    };
+    await step();
   }
 
   schedule(delayMs?: number): void {
@@ -285,28 +364,48 @@ export class Companion implements vscode.Disposable {
     );
   }
 
-  // 用户声称已手动修复某条建议（点了「✓ 改好了」）→ 绕过冷却立刻复审
+  // 用户声称已手动修复某条建议（点了「✓ 改好了」）→ 闸门判定（confirmGate）→ 必要时绕过冷却复审。
+  // 问题的身份是论断不是坐标：修复可能落在别的文件，所以闸门要带上全工作区的编辑视野，
+  // 复审 prompt 也要把「哪些文件动过、和建议什么关系」作为取证线索交给模型。
   async confirmFix(absolutePath: string, s: Suggestion): Promise<ConfirmResult> {
     if (!this.isEnabled() || this.callbacks.isBusy()) {
       return { status: 'busy' };
     }
     try {
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
-      if (!this.analyzer.hasUnanalyzedChanges(doc)) {
-        // 内容没变 = 当前这份代码我刚分析过，现有的标注就是最新判断，不用花 token 再看一遍
+      const rel = vscode.workspace.asRelativePath(doc.uri);
+      // 无 shownAt 打戳（理论上的老建议）→ 按 0 算：一切追踪到的编辑都算「之后」，最保守
+      const since = s.shownAt ?? 0;
+      const otherEdited = this.editTracker.filesEditedAfter(since, rel);
+      const relations = this.importGraph.related(rel);
+      const whyOf = new Map(relations.map((r) => [r.file, r.why]));
+      const relatedEdited = otherEdited.filter((f) => whyOf.has(f));
+      const gate = decideConfirmGate({
+        fileChanged: this.analyzer.hasUnanalyzedChanges(doc),
+        suggestionLine: s.line,
+        diff: this.analyzer.diffVsLastAnalysis(doc),
+        otherEdited,
+        relatedEdited,
+      });
+      if (gate === 'unchanged') {
         return { status: 'unchanged' };
       }
-      // 区域级确定性豁免：diff 证明改动没碰到这条建议的邻近区域（该行内容逐字节未变），
-      // 免 LLM 复审直接如实告知。措辞留余地——问题若依赖远端代码则此判定不保真
-      const diff = this.analyzer.diffVsLastAnalysis(doc);
-      if (diff && s.line !== undefined && isLineOutsideEdits(s.line, diff)) {
+      if (gate === 'untouched') {
         return { status: 'untouched' };
       }
-      const rel = vscode.workspace.asRelativePath(doc.uri);
+      const editedHint =
+        otherEdited.length > 0
+          ? `\nFiles edited since this note was shown: ${otherEdited
+              .map((f) => `${f} (${whyOf.get(f) ?? 'no known relation to this file'})`)
+              .join('; ')}.` +
+            `\nThe fix may live in ANY of them — the issue is a claim about behavior, not about that specific line ` +
+            `(e.g. a mismatch spotted at a call site can be fixed by changing the declaration). ` +
+            `Use read_file to check the current state of the relevant files before judging.`
+          : '';
       const suggestions = await this.analyzer.analyze(
         doc,
         `Verifying fix in ${rel}…`,
-        `The user says they just manually fixed this issue: [L${s.level}] line ${s.line ?? '?'} "${s.title}" — ${s.detail}. Verify honestly: if it is actually fixed, do NOT report it again; only report problems that still exist or are newly introduced.`,
+        `The user says they just manually fixed this issue: [L${s.level}] line ${s.line ?? '?'} "${s.title}" — ${s.detail}. Verify honestly: if it is actually fixed, do NOT report it again; only report problems that still exist or are newly introduced.${editedHint}`,
         { bypassCooldown: true, turnId: this.nextWatchId() } // 用户在回应我们的建议，这是最值得立刻反馈的时刻，不受冷却限制
       );
       return { status: 'reviewed', suggestions: suggestions ?? [] };
@@ -316,8 +415,12 @@ export class Companion implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.timer) {
       clearTimeout(this.timer);
+    }
+    if (this.scanTimer) {
+      clearTimeout(this.scanTimer);
     }
     this.analyzer.abortInFlight();
     for (const d of this.disposables) {

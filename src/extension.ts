@@ -298,22 +298,23 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       if (result.status === 'unchanged') {
-        // 当前代码就是最新分析过的版本：这条标注本身就是最新判断，无需再调 LLM
+        // 建议打出后全工作区都没动过：这条标注本身就是最新判断，无需再调 LLM
         logger.event('lifecycle', { summary: `confirm rejected (already analyzed, still flagged): ${s.title}` });
         telemetry.confirmUnchanged(s, relFile, snapOpts(s));
         chatProvider.note(
           '🔍 This is already the latest verdict on the current code',
-          `"${s.title}" — you have not changed the code (or this version was just analyzed); the issue still stands.\n${s.detail}\n\nWant me to fix it: hit Fix for me above the line. Think I am wrong: hit Discuss and let's hash it out.`
+          `"${s.title}" — nothing has been edited anywhere since this note was shown (or this version was just analyzed); the issue still stands.\n${s.detail}\n\nWant me to fix it: hit Fix for me above the line. Think I am wrong: hit Discuss and let's hash it out.`
         );
         return;
       }
       if (result.status === 'untouched') {
-        // diff 确定性判定：改动离这条建议很远，问题区域逐字节没变。如实告知但不进
-        // adopted/rejected——此判定只保证「那几行代码没变」，不保证问题依赖远端代码的情形
+        // diff 确定性判定：本文件的改动离这条建议很远，且相关文件（import 图）也没动过。
+        // 如实告知但不进 adopted/rejected——判定只保证「那几行代码没变」，
+        // 不保证问题依赖关系图之外的远端代码的情形（图是召回优先的启发式）
         logger.event('lifecycle', { summary: `confirm untouched (edit far from issue): ${s.title}` });
         chatProvider.note(
           '🎯 Your edit was nowhere near this one',
-          `"${s.title}" sits at line ${s.line}, and your changes were all elsewhere — that code is byte-identical, so the issue almost certainly still stands.\nIf this was meant as the fix, it missed the spot; if you were editing something else on purpose, just ignore this.`
+          `"${s.title}" sits at line ${s.line}, and your changes were all elsewhere — that code is byte-identical and no related file changed either, so the issue almost certainly still stands.\nIf this was meant as the fix, it missed the spot; if you were editing something else on purpose, just ignore this.`
         );
         return;
       }

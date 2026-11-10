@@ -18,6 +18,10 @@ src/
 │   │                       tool_calls 累积、AbortSignal、usage 回收
 │   ├── lineDiff.ts         行级 diff（公共前后缀夹逼，零依赖）：未变区逐行精确为真，
 │   │                       支撑 confirmFix 的区域级确定性豁免（untouched 分支）
+│   ├── editTracker.ts      编辑追踪（纯模块）：每文件最后编辑时间戳——闸门问的是
+│   │                       「建议打出后全工作区动过没有」，而非「建议所在文件动过没有」
+│   ├── importGraph.ts      import 关系图（纯模块）：正则解析 + 相对路径解析的双向文件索引
+│   │                       （召回优先启发式），支撑确认修复的候选修复现场圈定
 │   ├── usage.ts            token 统计：会话/全局累计，按来源（chat/companion/compact）细分
 │   ├── telemetry.ts        埋点（schema 集中）：建议生命周期 + 模式切换 + 记忆指令检测事件，
 │   │                       全走 logger 落 transcript（kind: metric）——评测/个性化的数据底子
@@ -48,6 +52,8 @@ src/
 │   │                       每次判定落 transcript（phase: 'decision'）——时机评测/个性化的数据底子
 │   ├── gate.ts             语义闸门（纯函数）：编辑分类决定等待时长 +
 │   │                       括号配对扫描 / 光标边界检测（决策层的信号源）
+│   ├── confirmGate.ts      确认修复闸门（纯函数）：unchanged/untouched/review 三值判定——
+│   │                       确定性分支只在「相关范围内什么都没动」时结论（修复可能落在别的文件）
 │   ├── analyzer.ts         分析管线：hash 去重 + 冷却闸门 + 注入项目记忆/活动轨迹 →
 │   │                       LLM（可自主调只读工具取证，≤3 轮）→ 结构化建议（含 reflect 元认知提问）；
 │   │                       learningMode 开启时追加 LEARNING_COMPANION（L1/L2 留白、L3 豁免）
@@ -120,13 +126,17 @@ chatProvider.initProject → 选项卡（代码层确定性分支，不经 LLM�
 
 ```
 用户手动编辑 → 标注降级为「待确认」（变暗保留）
-  → 用户点Fixed → companion.confirmFix（绕过冷却），四结局：
+  → 用户点Fixed → companion.confirmFix → confirmGate 闸门（问题的身份是论断不是坐标：
+    修复可能落在别的文件，所以判定带全工作区视野），四结局：
       busy      聊天在跑，稍后重试
-      unchanged 文件没变化 → 现有标注就是最新判断，不白调 LLM
-      untouched diff 证明改动没碰到建议邻近区域（问题区域逐字节没变）
-                → 免 LLM 如实告知「没修到点上」（措辞留余地，不进 adopted/rejected）
-      reviewed  LLM 复审出新结果 → ±3 行内同级问题消失 = 修好；
-                无行号建议无法按位置比对 → 第三态「新鲜分析 + 用户自己判断」
+      unchanged 建议打出后全工作区都没动过 → 现有标注就是最新判断，不白调 LLM
+      untouched 本文件改动离建议很远（diff 证明问题区域逐字节没变）
+                且相关文件（import 图）也没动 → 免 LLM 如实告知「没修到点上」
+                （措辞留余地，不进 adopted/rejected）
+      reviewed  其余一律 LLM 绕过冷却复审；有别处编辑时 prompt 附变更集线索
+                （哪些文件动过 + 与建议文件的关系），模型用 read_file 取证 →
+                ±3 行内同级问题消失 = 修好；无行号建议无法按位置比对
+                → 第三态「新鲜分析 + 用户自己判断」
 用户点Discuss → 建议进入聊天引用 chip → 用户输入问题 → 正常聊天链路
 Agent write_file → companion.reviewFiles（绕过冷却，只报与本次改动相关的问题）
   → 干净 → 标注静默消除，只记 transcript（不打扰用户）
