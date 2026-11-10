@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const root = path.resolve(__dirname, '..');
+const root = path.resolve(__dirname, '../..');
 const chatJs = fs.readFileSync(path.join(root, 'media', 'chat.js'), 'utf8');
 const chatViewTs = fs.readFileSync(path.join(root, 'src', 'ui', 'chatView.ts'), 'utf8');
 

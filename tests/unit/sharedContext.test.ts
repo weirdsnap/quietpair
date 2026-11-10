@@ -3,8 +3,8 @@
  * 「正在看」标记的携带与精确匹配（无行号建议靠 title 区分）。
  */
 import { describe, it, expect } from 'vitest';
-import { SharedContext } from '../src/memory/sharedContext';
-import type { Suggestion } from '../src/companion/annotations';
+import { SharedContext } from '../../src/memory/sharedContext';
+import type { Suggestion } from '../../src/companion/annotations';
 
 function sug(title: string, line?: number, level: 1 | 2 | 3 = 2): Suggestion {
   return { title, detail: `${title} 的详情`, line, level };

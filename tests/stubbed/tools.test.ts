@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { setWorkspaceRoot, setConfig } from './vscode-stub';
+import { setWorkspaceRoot, setConfig } from '../vscode-stub';
 import {
   isReadonlyCommand,
   groupToolCalls,
@@ -14,7 +14,7 @@ import {
   executeReadOnlyTool,
   toolDefinitions,
   readOnlyToolDefinitions,
-} from '../src/agent/tools';
+} from '../../src/agent/tools';
 
 let tmpWs: string;
 

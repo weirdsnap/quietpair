@@ -2,7 +2,7 @@
  * detect.ts 的测试：记忆指令检测是「打不打扰用户」的边界，误报/漏报的口径钉死在这里。
  */
 import { describe, it, expect } from 'vitest';
-import { detectMemoryCommand } from '../src/memory/detect';
+import { detectMemoryCommand } from '../../src/memory/detect';
 
 describe('detectMemoryCommand：显式记忆指令识别', () => {
   it('命中常见中文指令并归类到正确分区', () => {

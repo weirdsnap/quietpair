@@ -155,7 +155,10 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "vitest run",
-    "test:smoke": "vscode-test"
+    "test:smoke": "vscode-test",
+    "test:unit": "vitest run tests/unit",
+    "test:stubbed": "vitest run tests/stubbed",
+    "test:contract": "vitest run tests/contract"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

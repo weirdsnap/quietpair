@@ -208,14 +208,20 @@ vs_agent/
 | `npm install` | 安装依赖 |
 | `npm run compile` | 编译 TypeScript 到 `out/` |
 | `npm run watch` | 监听文件变化自动编译 |
-| `npm test` | 跑单元测试（vitest，189 项：`tests/` 下，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
-| `npm run test:smoke` | 真实宿主冒烟测试（`smoke/`）：下载一份干净 VS Code 真实加载扩展，验证 activate 全路径、命令注册、视图挂载——「F5 即崩」类问题的门禁（首次运行需下载约 150MB） |
+| `npm test` | L0+L1+L2 全部测试（vitest，234 项；分层见 [tests/README.md](tests/README.md)） |
+| `npm run test:unit` | 仅 L0 纯逻辑单元测试（`tests/unit/`，零 vscode 依赖） |
+| `npm run test:stubbed` | 仅 L1 vscode 桩集成测试（`tests/stubbed/`，vscode API 由 `tests/vscode-stub.ts` 桩替代） |
+| `npm run test:contract` | 仅 L2 静态契约门禁（`tests/contract/`，扫源码验证 webview 双向契约闭合） |
+| `npm run test:smoke` | L3 真实宿主冒烟测试（`smoke/`）：下载一份干净 VS Code 真实加载扩展，验证 activate 全路径、命令注册、视图挂载——「F5 即崩」类问题的门禁（首次运行需下载约 150MB） |
 
-CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + vitest，并在独立 job 里跑真实宿主冒烟测试（xvfb 虚拟显示）。
+测试分四层（L0 纯逻辑 / L1 桩集成 / L2 静态契约 / L3 真实宿主），层次定义与新测试该放哪层的规则见 [tests/README.md](tests/README.md)。
+
+CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + vitest（L0–L2），并在独立 job 里跑真实宿主冒烟测试（xvfb 虚拟显示）。
 
 ## 参考文档
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：模块划分、数据流、设计决策
+- [tests/README.md](tests/README.md)：测试四层结构（纯逻辑 / 桩集成 / 静态契约 / 真实宿主）与放置规则
 - [docs/USER_FLOW.md](docs/USER_FLOW.md)：用户流（mermaid 图）与用户故事
 - [VS Code Extension API](https://code.visualstudio.com/api)
 - [Webview API](https://code.visualstudio.com/api/extension-guides/webview)

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Logger, trackOf } from '../src/core/logger';
+import { Logger, trackOf } from '../../src/core/logger';
 import type * as vscode from 'vscode';
 
 function makeLogger() {

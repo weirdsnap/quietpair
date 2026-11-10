@@ -3,7 +3,7 @@
  * 这是 confirmFix 确定性豁免的数学基础，边界必须钉死。
  */
 import { describe, it, expect } from 'vitest';
-import { lineDiff, isLineOutsideEdits } from '../src/core/lineDiff';
+import { lineDiff, isLineOutsideEdits } from '../../src/core/lineDiff';
 
 function lines(n: number, prefix = 'L'): string {
   return Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`).join('\n');

@@ -3,7 +3,7 @@
  * 这是 confirmGate 诚实化的数据源，边界（except、容量封顶）必须钉死。
  */
 import { describe, it, expect } from 'vitest';
-import { EditTracker } from '../src/core/editTracker';
+import { EditTracker } from '../../src/core/editTracker';
 
 describe('EditTracker', () => {
   it('记录后可查：ts 之后编辑过 → true，之前 → false', () => {

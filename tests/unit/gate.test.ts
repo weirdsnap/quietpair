@@ -3,7 +3,7 @@
  * 编辑器对象用最小桩（只需要 document.lineAt / getText / selection.active.line）。
  */
 import { describe, it, expect } from 'vitest';
-import { bracketsBalanced, classifyDelay, cursorAtBoundary, isSemanticallySettled } from '../src/companion/gate';
+import { bracketsBalanced, classifyDelay, cursorAtBoundary, isSemanticallySettled } from '../../src/companion/gate';
 
 /** 最小编辑器桩：满足 cursorAtBoundary / isSemanticallySettled 用到的接口 */
 function fakeEditor(text: string, cursorLine: number) {

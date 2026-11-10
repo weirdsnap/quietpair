@@ -3,7 +3,7 @@
  * 召回优先的启发式，但已覆盖的形态必须钉死——确认修复的候选圈定依赖它。
  */
 import { describe, it, expect } from 'vitest';
-import { ImportGraph, parseImportSpecifiers } from '../src/core/importGraph';
+import { ImportGraph, parseImportSpecifiers } from '../../src/core/importGraph';
 
 function graphWith(files: Record<string, { lang: string; text: string }>): ImportGraph {
   const g = new ImportGraph();

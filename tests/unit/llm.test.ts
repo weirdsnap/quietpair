@@ -3,7 +3,7 @@
  * 增量累积规则必须钉死，网关返回格式变了在这里先炸。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { chatCompletion } from '../src/core/llm';
+import { chatCompletion } from '../../src/core/llm';
 
 function sseResponse(chunks: object[]): Response {
   const text = chunks.map((c) => `data: ${JSON.stringify(c)}\n`).join('') + 'data: [DONE]\n';

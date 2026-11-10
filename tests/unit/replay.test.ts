@@ -4,8 +4,8 @@
  * tool 消息与纯工具调用的 assistant 不回放——回放错了就是界面在编造历史。
  */
 import { describe, it, expect } from 'vitest';
-import { historyToReplayEntries, SUMMARY_PREFIX } from '../src/ui/replay';
-import { ChatMessage } from '../src/core/llm';
+import { historyToReplayEntries, SUMMARY_PREFIX } from '../../src/ui/replay';
+import { ChatMessage } from '../../src/core/llm';
 
 describe('historyToReplayEntries', () => {
   it('空历史与仅 system → 无条目', () => {

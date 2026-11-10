@@ -4,8 +4,8 @@
  * 修复可能落在别的文件，任何「别处动过」的迹象都必须放行给 LLM 复审。
  */
 import { describe, it, expect } from 'vitest';
-import { decideConfirmGate } from '../src/companion/confirmGate';
-import { lineDiff } from '../src/core/lineDiff';
+import { decideConfirmGate } from '../../src/companion/confirmGate';
+import { lineDiff } from '../../src/core/lineDiff';
 
 const oldText = Array.from({ length: 10 }, (_, i) => `L${i + 1}`).join('\n');
 // L5 改了：未变区 = [1..4] 和 [6..10]；line 1 远离编辑区，line 5 在其中

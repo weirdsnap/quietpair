@@ -4,7 +4,7 @@
  * 表格识别、围栏切分的边界必须钉死——渲染错误是用户每屏都看见的东西。
  */
 import { describe, it, expect } from 'vitest';
-import MdRender from '../media/mdrender.js';
+import MdRender from '../../media/mdrender.js';
 
 describe('escapeHtml', () => {
   it('转义 & < >', () => {

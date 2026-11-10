@@ -3,8 +3,8 @@
  * 改字段名/漏字段必须在这里炸出来，而不是攒了一周数据才发现是废的。
  */
 import { describe, it, expect } from 'vitest';
-import { Telemetry } from '../src/core/telemetry';
-import type { Suggestion } from '../src/companion/annotations';
+import { Telemetry } from '../../src/core/telemetry';
+import type { Suggestion } from '../../src/companion/annotations';
 
 interface Captured {
   kind: string;

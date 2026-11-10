@@ -3,7 +3,7 @@
  * 这些断言锁住核心定位，防止改文案时意外丢失关键约束。
  */
 import { describe, it, expect } from 'vitest';
-import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE, LEARNING_COMPANION, deepenPrompt } from '../src/agent/prompts';
+import { SYSTEM_PROMPT, COMPANION_PROMPT, GUIDE_PROMPT, INIT_PROMPT, LEARNING_POSTURE, LEARNING_COMPANION, deepenPrompt } from '../../src/agent/prompts';
 
 describe('SYSTEM_PROMPT：伙伴人设的核心约束', () => {
   it('定位是结对伙伴而非执行工具', () => {

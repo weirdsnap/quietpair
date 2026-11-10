@@ -3,7 +3,7 @@
  * 这是「什么时候开口」的唯一权威，行为漂移必须在这里炸出来。
  */
 import { describe, it, expect } from 'vitest';
-import { decideSpeak, SpeakContext } from '../src/companion/decision';
+import { decideSpeak, SpeakContext } from '../../src/companion/decision';
 
 const OPTS = { busyRetryMs: 10000, settleRetryMs: 3000 };
 
