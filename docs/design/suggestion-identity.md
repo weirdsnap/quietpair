@@ -81,6 +81,27 @@
 
 铁律：下一期缺席不影响上一期独立成立。
 
+## 已有工作对照（2026-11-12 调研，原始链接见 research/anchoring/PRIOR_ART.md，本地未提交）
+
+**不谋而合（方案被外部佐证）**：
+
+- **内容即身份**是工业界独立收敛的答案：SonarQube（行内容哈希 + 块移动检测）、Semgrep（`match_based_id` 刻意不含行号）、Meta Infer（位置无关 bug hash）、CodeQL（稳定实体名）——行号锚在 issue identity 场景被一致抛弃，我们是第五个独立收敛
+- **确定性修复确认是主流**：reviewdog（重跑全量、差集自动 resolve/delete）、SonarQube（哈希不上 = Fixed）；严肃静态分析工具无人用 LLM 判修复——LLM 重审的是 CodeRabbit 这类 AI 评审机器人，恰是它们最弱的环节
+- **LLM 照抄原文可靠**：Claude Code 精确 `old_string` + 唯一性校验、Aider SEARCH/REPLACE 块，与 quote anchor 同构
+- **缩进归一化是标准操作**：`git diff --color-moved` 的空白容忍档同思路
+- **强弱分级降级有先例**：SonarQube 的次级匹配（rule+行号+message 兜底）、Hypothesis 的 fuzzy fallback
+
+**差异点（无人占位，本方案的原创性主张）**：
+
+1. **拒绝相似度模糊匹配**：Hypothes.is 的 fuzzy anchoring 在原文被编辑后静默锚到别处相似文本（hypothesis/client#7571；实证 27% 注释成孤儿、仅 3.5% 可恢复）——我们的保守路线有公开事故作证
+2. **确定性 rejected 作为一等状态**：现有系统失配后的归宿只有孤儿（Hypothesis）/ outdated 标记（GitHub）/ 静默新建（Coverity），没有带确定语义的状态转移
+3. **场景空档**：所有先例跑在 CI/PR（有 diff 基线）；编辑器内、无 commit 边界的实时内容锚无人做（Zed #59157 提了需求未实现）
+
+**从调研中吸收的资产**：
+
+- Google Critique 用新旧两版 diff 对齐评论位置——我们的 analyzer 本来就存分析时刻快照（`lastContent`），**diff 对齐这条路对我们开放**，复审时可作内容搜索的补充证据（三期评估）
+- 多处出现的消歧若不够，可参考 Hypothesis 的 prefix/suffix 上下文或 Claude Code 的唯一性校验（现定案：全部位置记录、任一存活即存活）
+
 ## 测试策略（对齐 tests/README.md 四层）
 
 - **L0 纯函数**：双档匹配（精确/归一化/多处出现/全消失）、锚哈希稳定性、身份键生成（含撞车场景：同锚不同 title）、D4 判定树的判定表全组合（锚强度 × 找到与否 × 工作区动向 × 相关文件动向）
