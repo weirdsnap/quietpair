@@ -22,6 +22,7 @@ import { memoryStore } from '../memory/store';
 import { Suggestion, SuggestionLevel } from './annotations';
 import { ActivityTracker } from './activity';
 import { LineDiff, lineDiff } from '../core/lineDiff';
+import { buildAnchor } from '../core/anchor';
 
 const MAX_CONTEXT_CHARS = 40000;
 const MAX_DIAGNOSTICS = 20;
@@ -65,6 +66,8 @@ export function parseSuggestions(text: string): Suggestion[] | null {
           detail: String(s.detail),
           fix: typeof s.fix === 'string' && s.fix.trim() ? s.fix : undefined,
           reflect: typeof s.reflect === 'string' && s.reflect.trim() ? s.reflect : undefined,
+          // 原始 quote 原样带出，由 analyzer 校验后提升为 anchor（校验不过降级行号截取弱锚）
+          quote: typeof s.quote === 'string' && s.quote.trim() ? s.quote : undefined,
         };
       });
   } catch {
@@ -74,7 +77,8 @@ export function parseSuggestions(text: string): Suggestion[] | null {
 
 export class Analyzer {
   private lastHash = new Map<string, number>();
-  // 上次分析版本的全文（配合 lineDiff 做区域级确定性豁免：改动离建议很远就免 LLM 复审）
+  // 上次分析版本的全文快照（配合 lineDiff 给复审 prompt 提供变更集线索——
+  // Critique 式 diff 对齐的资产，见 docs/design/suggestion-identity.md「已有工作对照」）
   private lastContent = new Map<string, string>();
   private lastAnalysisAt = 0;
   private controller: AbortController | undefined;
@@ -277,6 +281,26 @@ ${content}
       const trimmed = answer.trim();
       const parsed = trimmed ? parseSuggestions(trimmed) : [];
       if (parsed !== null) {
+        // 内容锚落位（设计：suggestion-identity D2）：quote 校验通过=强锚，否则行号截取弱锚兜底
+        let strong = 0, weak = 0, quoteRejected = 0;
+        for (const s of parsed) {
+          const hadQuote = !!s.quote;
+          const anchor = buildAnchor(s.quote, s.line, full);
+          if (anchor) {
+            s.anchor = anchor;
+            if (anchor.strength === 'strong') strong++; else weak++;
+          }
+          if (hadQuote && anchor?.strength !== 'strong') quoteRejected++;
+          delete s.quote; // 唯一事实源是 anchor，原始 quote 不外流
+        }
+        this.deps.onDebug?.('anchor', {
+          turnId: id,
+          strong,
+          weak,
+          none: parsed.length - strong - weak,
+          quoteRejected,
+          summary: `anchors: ${strong} strong / ${weak} weak / ${parsed.length - strong - weak} none (quote rejected: ${quoteRejected})`,
+        });
         this.deps.onAnalysisEnd(id, relPath, doc.uri, parsed, null);
         return parsed;
       } else if (/NO_ISSUES/i.test(trimmed)) {

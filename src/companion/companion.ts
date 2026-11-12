@@ -22,6 +22,7 @@ import { SaveTriage } from './triage';
 import { classifyDelay, isSemanticallySettled } from './gate';
 import { decideSpeak } from './decision';
 import { decideConfirmGate } from './confirmGate';
+import { findQuote } from '../core/anchor';
 import { EditTracker } from '../core/editTracker';
 import { ImportGraph, languageIdFromPath } from '../core/importGraph';
 
@@ -39,14 +40,15 @@ export interface CompanionCallbacks {
 }
 
 // 「✓ 改好了」的四种结局：聊天在跑 → busy；建议打出后全工作区都没动过 → unchanged
-//（现有标注就是最新判断，无需再调 LLM）；本文件的改动离建议很远且相关文件也没动 → untouched
-//（diff 确定性判定：问题区域逐字节没变，免 LLM 复审）；真正复审出新结果 → reviewed
-// 闸门逻辑抽在 confirmGate.ts（纯函数）：确定性分支只在「相关范围内什么都没动」时结论
+//（现有标注就是最新判断，无需再调 LLM）；强锚证据原样还在且相关文件没动 → untouched
+//（内容锚确定性判定，免 LLM 复审）；真正复审出新结果 → reviewed
+// 闸门逻辑抽在 confirmGate.ts（纯函数），复审结局判定抽在 confirmVerdict.ts（纯函数）：
+// 确定性分支只在证据充分时结论（设计：docs/design/suggestion-identity.md D4）
 export type ConfirmResult =
   | { status: 'busy' }
   | { status: 'unchanged' }
   | { status: 'untouched' }
-  | { status: 'reviewed'; suggestions: Suggestion[] };
+  | { status: 'reviewed'; suggestions: Suggestion[]; anchorFound?: boolean; anchorSpanStarts?: number[] };
 
 export class Companion implements vscode.Disposable {
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -364,9 +366,9 @@ export class Companion implements vscode.Disposable {
     );
   }
 
-  // 用户声称已手动修复某条建议（点了「✓ 改好了」）→ 闸门判定（confirmGate）→ 必要时绕过冷却复审。
-  // 问题的身份是论断不是坐标：修复可能落在别的文件，所以闸门要带上全工作区的编辑视野，
-  // 复审 prompt 也要把「哪些文件动过、和建议什么关系」作为取证线索交给模型。
+  // 用户声称已手动修复某条建议（点了「✓ 改好了」）→ 内容锚搜索 → 闸门判定（confirmGate）→ 必要时绕过冷却复审。
+  // 问题的身份是论断不是坐标：锚定的是「问题证据的那段代码」，不是行号；
+  // 复审 prompt 按锚的状态分情形（证据还在/证据消失/弱锚仅线索），并把「哪些文件动过」带给模型取证。
   async confirmFix(absolutePath: string, s: Suggestion): Promise<ConfirmResult> {
     if (!this.isEnabled() || this.callbacks.isBusy()) {
       return { status: 'busy' };
@@ -374,6 +376,14 @@ export class Companion implements vscode.Disposable {
     try {
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
       const rel = vscode.workspace.asRelativePath(doc.uri);
+      // 内容锚搜索：打出时的片段现在还找得到吗（文件内移动免费——文本没变就能找到，行号漂移免疫）
+      let anchorFound: boolean | undefined;
+      let anchorSpanStarts: number[] | undefined;
+      if (s.anchor) {
+        const m = findQuote(doc.getText(), s.anchor.quote);
+        anchorFound = m !== null;
+        anchorSpanStarts = m?.lines;
+      }
       // 无 shownAt 打戳（理论上的老建议）→ 按 0 算：一切追踪到的编辑都算「之后」，最保守
       const since = s.shownAt ?? 0;
       const otherEdited = this.editTracker.filesEditedAfter(since, rel);
@@ -382,10 +392,9 @@ export class Companion implements vscode.Disposable {
       const relatedEdited = otherEdited.filter((f) => whyOf.has(f));
       const gate = decideConfirmGate({
         fileChanged: this.analyzer.hasUnanalyzedChanges(doc),
-        suggestionLine: s.line,
-        diff: this.analyzer.diffVsLastAnalysis(doc),
         otherEdited,
         relatedEdited,
+        anchor: s.anchor ? { strength: s.anchor.strength, found: anchorFound === true } : undefined,
       });
       if (gate === 'unchanged') {
         return { status: 'unchanged' };
@@ -402,13 +411,31 @@ export class Companion implements vscode.Disposable {
             `(e.g. a mismatch spotted at a call site can be fixed by changing the declaration). ` +
             `Use read_file to check the current state of the relevant files before judging.`
           : '';
+      // 变更集线索（D3）：分析时刻有快照，变化区域直接告诉模型，帮它定位「用户改了哪」
+      const diff = this.analyzer.diffVsLastAnalysis(doc);
+      const diffHint = diff
+        ? `\nChanged region since the last analysis (old line numbering): lines ${diff.prefixLines + 1}..${diff.oldLineCount - diff.suffixLines} (file had ${diff.oldLineCount} lines, now ${diff.newLineCount}).`
+        : '';
+      // 锚的状态是复审最重要的取证线索：证据还在（去查相关文件）/ 证据消失（判修复还是重写）/ 弱锚（位置可能不准）
+      let anchorNote = '';
+      if (s.anchor?.strength === 'strong') {
+        anchorNote = anchorFound
+          ? `\nThe original evidence code is still present, starting at line(s) ${(anchorSpanStarts ?? []).join(', ')}:\n"""\n${s.anchor.quote}\n"""\n` +
+            `The fix may have landed in a related file instead — verify the CLAIM (read_file the edited files), not just this snippet.`
+          : `\nThe original evidence code is GONE from the current content. It was:\n"""\n${s.anchor.quote}\n"""\n` +
+            `The user either fixed it or rewrote that part. Judge from the current content whether the ISSUE itself is resolved; do not report it again if it is gone.`;
+      } else if (s.anchor) {
+        anchorNote =
+          `\nNote: the snippet below was extracted around the reported line number, NOT quoted verbatim — its location may be off; treat it only as a hint:\n"""\n${s.anchor.quote}\n"""` +
+          (anchorFound === false ? `\n(That snippet no longer matches the current content — consistent with its location having been off, or the code having changed.)` : '');
+      }
       const suggestions = await this.analyzer.analyze(
         doc,
         `Verifying fix in ${rel}…`,
-        `The user says they just manually fixed this issue: [L${s.level}] line ${s.line ?? '?'} "${s.title}" — ${s.detail}. Verify honestly: if it is actually fixed, do NOT report it again; only report problems that still exist or are newly introduced.${editedHint}`,
+        `The user says they just manually fixed this issue: [L${s.level}] line ${s.line ?? '?'} "${s.title}" — ${s.detail}. Verify honestly: if it is actually fixed, do NOT report it again; only report problems that still exist or are newly introduced.${anchorNote}${editedHint}${diffHint}`,
         { bypassCooldown: true, turnId: this.nextWatchId() } // 用户在回应我们的建议，这是最值得立刻反馈的时刻，不受冷却限制
       );
-      return { status: 'reviewed', suggestions: suggestions ?? [] };
+      return { status: 'reviewed', suggestions: suggestions ?? [], anchorFound, anchorSpanStarts };
     } catch {
       return { status: 'busy' };
     }

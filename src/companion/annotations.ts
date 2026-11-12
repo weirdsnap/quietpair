@@ -7,6 +7,7 @@
  * 等新分析刷新或用户点 ✓ 确认——标注是有新鲜度状态的观察，不是一次性通知。
  */
 import * as vscode from 'vscode';
+import type { SuggestionAnchor } from '../core/anchor';
 
 export type SuggestionLevel = 1 | 2 | 3;
 
@@ -19,6 +20,8 @@ export interface Suggestion {
   reflect?: string; // 元认知提问：帮用户以后更早自己发现这类问题
   pending?: boolean; // 待确认：用户编辑过该文件，AI 还没确认新内容
   shownAt?: number; // 展示时刻（埋点用：算「距展示多久用户做了什么」）
+  quote?: string; // 模型输出的原始 quote（未校验，仅打出瞬间存在；校验/降级后写入 anchor 并清除）
+  anchor?: SuggestionAnchor; // 内容片段锚：确认修复/身份判定只认它，不认 line（设计：docs/design/suggestion-identity.md）
 }
 
 export const LEVEL_LABEL: Record<SuggestionLevel, string> = {

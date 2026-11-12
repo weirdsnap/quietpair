@@ -52,6 +52,12 @@ describe('COMPANION_PROMPT：守望分析的核心约束', () => {
     expect(COMPANION_PROMPT).toContain('reflect');
     expect(COMPANION_PROMPT).toContain('元认知');
   });
+
+  it('内容锚字段（quote）：照抄原文、最小证据片段（suggestion-identity D2）', () => {
+    expect(COMPANION_PROMPT).toContain('"quote"');
+    expect(COMPANION_PROMPT).toContain('逐字照抄');
+    expect(COMPANION_PROMPT).toContain('证据');
+  });
 });
 
 describe('LEARNING_COMPANION：学习模式守望指令的核心约束', () => {

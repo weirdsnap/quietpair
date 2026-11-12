@@ -83,7 +83,7 @@ webview 视图挂载。L0–L2 全走桩，证明不了「F5 即崩」这一类�
 
 **属性测试（Property-Based Testing，fast-check）** —— 输入空间巨大的纯函数（解析器、diff、转义）。
 不钉例子，钉**不变量**：每条属性必须对应产品逻辑真实依赖的保证
-（如「isLineOutsideEdits 为真 ⇒ 该行内容逐字节未变」就是 confirmFix 豁免分支的核心承诺）。
+（如「findQuote 报找到 ⇒ 报告行起的内容与 quote 逐行一致」就是内容锚确认的物理基础）。
 生成器要引导撞出有趣结构（小字母表提高行撞车率、显式注入 ```），纯随机输入测不到深处。
 范例：`tests/unit/property.test.ts`。
 

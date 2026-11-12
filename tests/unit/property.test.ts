@@ -4,15 +4,17 @@
  * 对解析器/diff 这类输入空间巨大的纯函数，这是性价比最高的防线。
  *
  * 每条属性都对应产品逻辑真实依赖的保证（不是为测而测）：
- * - P1–P4：lineDiff 的结构不变量（confirmFix 的确定性豁免就建立在「未变区逐字节一致」上）
- * - P5：isLineOutsideEdits 为真 ⇒ 该行内容真的没变（豁免分支的核心承诺，措辞「逐字节」的数学化）
+ * - P1–P4：lineDiff 的结构不变量（复审 prompt 的变更集线索就建立在「未变区逐字节一致」上）
+ * - P5a：findQuote 报「找到」⇒ 该行起的内容与 quote 真的逐行一致（exact 档逐字节 / normalized 档归一化后）
+ * - P5b：findQuote 优先 exact 档（exact 能中时绝不报 normalized）
  * - P6：escapeHtml 的输出没有未转义的 < > &（webview XSS 防线）
  * - P7：renderInline 只生成白名单标签、href 只放行 http/https（链接渲染的安全承诺）
- * - P8：splitFences 的代码块数 = ``` 次数 / 2 向下取整（围栏配对守恒）
+ * - P8：splitFences 的代码块数 = ``` 次数 / 2 向上取整（围栏配对守恒）
  */
 import { describe, it } from 'vitest';
 import * as fc from 'fast-check';
-import { lineDiff, isLineOutsideEdits } from '../../src/core/lineDiff';
+import { lineDiff } from '../../src/core/lineDiff';
+import { findQuote, normalizeLines } from '../../src/core/anchor';
 import MdRender from '../../media/mdrender.js';
 
 // 小字母表行文本：行内容撞车率高，前后缀夹逼才有机会夹出非平凡结构
@@ -68,26 +70,50 @@ describe('lineDiff 结构不变量', () => {
     );
   });
 
-  it('P5（豁免分支的核心承诺）: isLineOutsideEdits 为真的行，内容在新旧两版间逐字节一致', () => {
+});
+
+describe('findQuote（内容锚）不变量', () => {
+  it('P5a: 报找到 ⇒ 报告行起的内容与 quote 逐行一致（按命中档位）', () => {
     fc.assert(
-      fc.property(arbText, arbText, fc.integer({ min: 0, max: 5 }), (a, b, margin) => {
-        const d = lineDiff(a, b);
-        if (!d) {
-          return true;
+      fc.property(arbText, fc.integer({ min: 0, max: 29 }), fc.integer({ min: 1, max: 4 }), (text, startRaw, len) => {
+        const lines = text.split('\n');
+        const start = startRaw % lines.length;
+        const quote = lines.slice(start, start + len).join('\n');
+        // 合法 quote 的非退化形态：整体非空白，且首尾行非空行
+        //（findQuote 按设计剥掉头尾空白行——「模型多带一行空行」场景由 anchor.test.ts 的单测专门钉死）
+        fc.pre(quote.trim().length > 0 && lines[start].trim().length > 0 && lines[Math.min(start + len, lines.length) - 1].trim().length > 0);
+        const m = findQuote(text, quote);
+        if (!m) {
+          return false; // 从内容里切出来的 quote 必须能找到
         }
-        const oldLines = a.split('\n');
-        const newLines = b.split('\n');
-        for (let line = 1; line <= d.oldLineCount; line++) {
-          if (!isLineOutsideEdits(line, d, margin)) {
-            continue;
-          }
-          // 前缀侧坐标不变；后缀侧平移 (newCount - oldCount)
-          const newIdx = line <= d.prefixLines ? line : line + (d.newLineCount - d.oldLineCount);
-          if (oldLines[line - 1] !== newLines[newIdx - 1]) {
-            return false;
+        for (const line of m.lines) {
+          const window = lines.slice(line - 1, line - 1 + len);
+          if (m.tier === 'exact') {
+            if (window.join('\n') !== quote) {
+              return false;
+            }
+          } else {
+            if (normalizeLines(window.join('\n')).join('\n') !== normalizeLines(quote).join('\n')) {
+              return false;
+            }
           }
         }
         return true;
+      })
+    );
+  });
+
+  it('P5b: exact 能中时绝不报 normalized（档位优先级）', () => {
+    fc.assert(
+      fc.property(arbText, fc.integer({ min: 0, max: 29 }), (text, startRaw) => {
+        const lines = text.split('\n');
+        const quote = lines[startRaw % lines.length];
+        fc.pre(quote.trim().length > 0);
+        const m = findQuote(text, quote);
+        if (!m) {
+          return false;
+        }
+        return m.tier === 'exact'; // quote 原样来自内容，exact 必中
       })
     );
   });

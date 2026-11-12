@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './ui/chatView';
 import { Companion } from './companion/companion';
+import { judgeConfirmOutcome } from './companion/confirmVerdict';
 import { AnnotationManager, Suggestion, levelIcon, LEVEL_LABEL } from './companion/annotations';
 import { ActivityTracker } from './companion/activity';
 import { SharedContext } from './memory/sharedContext';
@@ -308,48 +309,45 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       if (result.status === 'untouched') {
-        // diff 确定性判定：本文件的改动离这条建议很远，且相关文件（import 图）也没动过。
-        // 如实告知但不进 adopted/rejected——判定只保证「那几行代码没变」，
-        // 不保证问题依赖关系图之外的远端代码的情形（图是召回优先的启发式）
-        logger.event('lifecycle', { summary: `confirm untouched (edit far from issue): ${s.title}` });
+        // 内容锚确定性判定：这条建议的「证据代码」片段在当前内容里原样还在，
+        // 且相关文件（import 图）也没动过。如实告知但不进 adopted/rejected——
+        // 判定只保证「证据代码没变 + 相关范围零改动」，不保证问题依赖图之外的远端修复
+        logger.event('lifecycle', { summary: `confirm untouched (evidence intact, related untouched): ${s.title}` });
         chatProvider.note(
-          '🎯 Your edit was nowhere near this one',
-          `"${s.title}" sits at line ${s.line}, and your changes were all elsewhere — that code is byte-identical and no related file changed either, so the issue almost certainly still stands.\nIf this was meant as the fix, it missed the spot; if you were editing something else on purpose, just ignore this.`
+          '🎯 Your edit did not touch the evidence',
+          `The exact code that "${s.title}" points at is still there unchanged, and no related file was edited either — so the issue almost certainly still stands.\nIf this was meant as the fix, it missed the spot; if you were editing something else on purpose, just ignore this.`
         );
         return;
       }
 
-      // 判定修复：复审后原位置（±3 行）没有同级及以上问题就算修好。
-      // 三态语义：「比对不了」既不是「修好了」也不是「还在」——原建议没行号时按位置无从比对，
-      // 如实把新鲜分析交给用户自己判断（且不算进 adopted/rejected，避免污染接受率数据）
-      const from = s.line; // 提成局部 const：闭包里属性访问的类型收窄会丢
-      const remaining =
-        from === undefined
-          ? []
-          : result.suggestions.filter(
-              (x) => x.line !== undefined && x.level >= s.level && Math.abs(x.line - from) <= 3
-            );
+      // 复审结局判定（confirmVerdict 纯函数）：强锚走内容比对（证据消失/证据还在两条），
+      // 弱锚/无锚走旧的位置窗口；比对不了 = inconclusive（不进 adopted/rejected，不污染接受率数据）
+      const outcome = judgeConfirmOutcome({
+        original: s,
+        anchorFound: result.anchorFound,
+        anchorSpanStarts: result.anchorSpanStarts,
+        reviewed: result.suggestions,
+      });
 
-      // 第三态：没行号且复审非空 → 无法判定。复审为空（模型说文件干净）则是真确认，不算第三态
-      if (from === undefined && result.suggestions.length > 0) {
-        logger.event('lifecycle', { summary: `confirm inconclusive (no line): ${s.title}` });
+      if (outcome.kind === 'inconclusive') {
+        logger.event('lifecycle', { summary: `confirm inconclusive: ${s.title}` });
         chatProvider.note(
           '🔍 Re-analysed — your call',
-          `"${s.title}" carries no line number, so I cannot tell whether it is gone. Here is the fresh analysis of the file:\n\n${formatSummary(result.suggestions)}`
+          `I cannot tell for sure whether "${s.title}" is gone. Here is the fresh analysis of the file:\n\n${formatSummary(result.suggestions)}`
         );
         return;
       }
 
-      if (remaining.length === 0) {
+      if (outcome.kind === 'confirmed') {
         logger.event('lifecycle', { summary: `fix verified: ${s.title}` });
         telemetry.suggestionAdopted(s, relFile, 'confirm-verified', snapOpts(s));
         chatProvider.note('✓ Fix confirmed', `"${s.title}" is clean now.`);
       } else {
-        logger.event('lifecycle', { summary: `fix rejected: ${s.title}, ${remaining.length} issues remain` });
-        telemetry.suggestionRejected(s, relFile, remaining.length, snapOpts(s));
+        logger.event('lifecycle', { summary: `fix rejected: ${s.title}, ${outcome.remaining.length} issues remain` });
+        telemetry.suggestionRejected(s, relFile, outcome.remaining.length, snapOpts(s));
         chatProvider.note(
           `🔄 Review: the issue may still be there`,
-          remaining.map((x) => `L${x.level} line ${x.line} — ${x.title}\n${x.detail}`).join('\n\n')
+          outcome.remaining.map((x) => `L${x.level} line ${x.line} — ${x.title}\n${x.detail}`).join('\n\n')
         );
       }
     }),

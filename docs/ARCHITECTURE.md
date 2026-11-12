@@ -17,7 +17,9 @@ src/
 │   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、reasoning_content 思考流捕获、
 │   │                       tool_calls 累积、AbortSignal、usage 回收
 │   ├── lineDiff.ts         行级 diff（公共前后缀夹逼，零依赖）：未变区逐行精确为真，
-│   │                       支撑 confirmFix 的区域级确定性豁免（untouched 分支）
+│   │                       支撑复审 prompt 的变更集线索（改了哪几行直接告诉模型）
+│   ├── anchor.ts           内容片段锚（纯函数，suggestion-identity 一期）：双档匹配
+│   │                       （exact 行边界对齐 / normalized 缩进归一）+ 强弱锚构建（buildAnchor）
 │   ├── editTracker.ts      编辑追踪（纯模块）：每文件最后编辑时间戳——闸门问的是
 │   │                       「建议打出后全工作区动过没有」，而非「建议所在文件动过没有」
 │   ├── importGraph.ts      import 关系图（纯模块）：正则解析 + 相对路径解析的双向文件索引
@@ -54,10 +56,13 @@ src/
 │   │                       每次判定落 transcript（phase: 'decision'）——时机评测/个性化的数据底子
 │   ├── gate.ts             语义闸门（纯函数）：编辑分类决定等待时长 +
 │   │                       括号配对扫描 / 光标边界检测（决策层的信号源）
-│   ├── confirmGate.ts      确认修复闸门（纯函数）：unchanged/untouched/review 三值判定——
-│   │                       确定性分支只在「相关范围内什么都没动」时结论（修复可能落在别的文件）
+│   ├── confirmGate.ts      确认修复闸门（纯函数，D4 判定树）：unchanged/untouched/review 三值——
+│   │                       强锚证据还在+相关文件没动才给确定性「没修到点上」；弱锚永无裁决权
+│   ├── confirmVerdict.ts   复审结局判定（纯函数）：confirmed/rejected/inconclusive——
+│   │                       强锚走内容比对（证据消失/证据区间重叠），弱锚/无锚走位置窗口
 │   ├── analyzer.ts         分析管线：hash 去重 + 冷却闸门 + 注入项目记忆/活动轨迹 →
-│   │                       LLM（可自主调只读工具取证，≤3 轮）→ 结构化建议（含 reflect 元认知提问）；
+│   │                       LLM（可自主调只读工具取证，≤3 轮）→ 结构化建议（含 reflect 元认知提问 +
+│   │                       quote 内容锚：校验通过=强锚，否则行号截取弱锚兜底，埋点记强弱分布）；
 │   │                       learningMode 开启时追加 LEARNING_COMPANION（L1/L2 留白、L3 豁免）
 │   ├── triage.ts           保存分诊「速记员」（分层观测第二层）：保存时用极小调用
 │   │                       判断值不值得叫醒深度分析（30s 限频，可用便宜的 triageModel）
@@ -130,17 +135,18 @@ chatProvider.initProject → 选项卡（代码层确定性分支，不经 LLM�
 
 ```
 用户手动编辑 → 标注降级为「待确认」（变暗保留）
-  → 用户点Fixed → companion.confirmFix → confirmGate 闸门（问题的身份是论断不是坐标：
-    修复可能落在别的文件，所以判定带全工作区视野），四结局：
+  → 用户点Fixed → companion.confirmFix → 内容锚搜索（findQuote 双档匹配，文件内移动免疫）
+  → confirmGate 闸门（问题的身份是论断不是坐标，判定带全工作区视野），四结局：
       busy      聊天在跑，稍后重试
       unchanged 建议打出后全工作区都没动过 → 现有标注就是最新判断，不白调 LLM
-      untouched 本文件改动离建议很远（diff 证明问题区域逐字节没变）
-                且相关文件（import 图）也没动 → 免 LLM 如实告知「没修到点上」
-                （措辞留余地，不进 adopted/rejected）
-      reviewed  其余一律 LLM 绕过冷却复审；有别处编辑时 prompt 附变更集线索
-                （哪些文件动过 + 与建议文件的关系），模型用 read_file 取证 →
-                ±3 行内同级问题消失 = 修好；无行号建议无法按位置比对
-                → 第三态「新鲜分析 + 用户自己判断」
+      untouched 强锚片段在当前内容里原样还在 且 相关文件（import 图）没动
+                → 免 LLM 如实告知「没修到点上」（措辞留余地，不进 adopted/rejected；
+                弱锚/无锚没有确定性裁决权，只能进 review）
+      reviewed  其余一律 LLM 绕过冷却复审；prompt 按锚状态分情形
+                （证据还在→查相关文件 / 证据消失→判修复还是重写 / 弱锚注明位置可能不准），
+                附变更集线索（哪些文件动过 + diff 变化区域），模型用 read_file 取证
+                → confirmVerdict 判结局：强锚走内容比对（证据区间重叠 = 没修好），
+                弱锚/无锚走 ±3 位置窗口；比对不了 → 第三态「新鲜分析 + 用户自己判断」
 用户点Discuss → 建议进入聊天引用 chip → 用户输入问题 → 正常聊天链路
 Agent write_file → companion.reviewFiles（绕过冷却，只报与本次改动相关的问题）
   → 干净 → 标注静默消除，只记 transcript（不打扰用户）
@@ -183,7 +189,7 @@ onDidSaveTextDocument
 
 ## 长期方向（占位，未实现）
 
-- **建议身份模型：内容锚（已定案待实施，2026-11-11）**：行号锚四类失效（插行漂移/区域内编辑/语义等价重写/跨文件修复），身份从坐标换为内容——设计全文见 [design/suggestion-identity.md](design/suggestion-identity.md)：片段锚 + 强弱分级 + 双档精确匹配 + 三件套身份键，三期落地（一期 confirmFix 换锚为 0.1 目标）。原 ③b（行号映射）明确跳过。
+- **建议身份模型：内容锚（一期已落地 2026-11-12，二三期未做）**：行号锚四类失效（插行漂移/区域内编辑/语义等价重写/跨文件修复），身份从坐标换为内容——设计全文见 [design/suggestion-identity.md](design/suggestion-identity.md)。已落地：quote 字段 + 强弱锚分级 + 双档精确匹配 + confirmFix 走 D4 判定树（confirmGate + confirmVerdict 纯函数）。未做：二期（SharedContext 身份键换锚 / markViewed 换锚 / 生命周期 persists/new）、三期（LSP 符号锚，合并原 ③c）。原 ③b（行号映射）明确跳过。
 - **打断时机的数据收集与个性化**（调研依据见 `research/proactive-agents/`，本地未提交）：Züger et al. CHI 2018 证明纯键鼠/窗口交互预测可打断性达 74.8%（超生理传感器 68.3%），但其特征权重基于通用办公场景，IDE 内子状态（写码/读码/调试/跑测试）的差异需自测。三步走：① 建议展示/接受/忽略时埋点记录上下文（距上次保存、输入节奏、是否调试中、建议类型与级别），纯日志不改变行为；② 攒量后离线交叉分析，先验证「断点对齐」在本场景是否成立；③ 信号够强才上简单模型做个性化。注意：accept/ignore 混有内容质量噪声，不能单独当时机标签（时机好 0.676 vs 反时机 0.388，但只按接受率门控误报会冲 62.5%）。L2 波浪线近零成本，可作探针主动采集标注。**约束：不微调模型**——所有主动性改进都走外部手段（prompt、门控规则、few-shot 上下文注入、廉价模型过滤层），长期依赖模型厂商自身演进。
   - **场景校准（2026-10 讨论）**：commit/push 前代码错误爆炸半径小，危险成本极低，must 窗口应很薄（仅外部副作用操作）；成本项重心转向注意力成本与**学习成本**（过早提示剥夺 productive struggle，「用户即将自己想出来」是学习场景特有的 must-not）。
   - **「写到一半」判定**：停笔时长无法区分「想完了/正在想/人离开」。硬信号走代码完整性（语法不完备、空函数体、半截表达式——gate.ts 已有雏形）；「正在想」靠阅读行为推断（滚动/光标移动/查定义）；存疑即挂起（Delayed），等保存/运行断点再投递，避免精确分类的负担。**→ 三值判定框架已落地（decision.ts，2026-10-19）**：speak/delay/suppress + 每次判定落 transcript；阅读行为信号采集仍未做。
