@@ -129,6 +129,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     this.stopRun();
+    // 手动压缩进行中：打断并等它收尾——否则压缩完成会把旧摘要塞回刚清空的 history（P2-1）
+    if (this.compacting) {
+      this.stopRun();
+      await new Promise<void>((resolve) => this.compactWaiters.push(resolve));
+    }
     // 排队中的发言属于这场对话，随清空一起作废（用户已确认过破坏性操作）
     const discarded = this.sendQueue.discardAll();
     if (discarded.length > 0) {
@@ -374,6 +379,11 @@ ${serialized}`,
         ],
       });
       const { content } = result;
+      // 落地前最后一道闸：LLM 调用返回后、覆写 history 前用户可能刚打断/clear 过
+      if (signal?.aborted) {
+        this.logger.event('lifecycle', { summary: 'compaction aborted before applying (interrupted)' });
+        return false;
+      }
       this.usage.add('compact', result.usage);
       this.logger.event('usage', {
         source: 'compact',
@@ -433,15 +443,20 @@ ${serialized}`,
     }
     const config = getConfig();
     this.compacting = true;
+    // 与 handleSend 的自动压缩同一套打断语义：挂 currentAbort + 传 signal，
+    // clear / 插话能停掉它（否则 clear 后压缩完成会把旧摘要塞回已清空的 history，P2-1）
+    const abort = new AbortController();
+    this.currentAbort = abort;
     this.logger.event('lifecycle', { summary: 'manual compaction requested' });
     this.note('🗜 Compacting…', 'Distilling earlier turns into a summary; durable notes go into project memory.');
     try {
-      const compacted = await this.compactIfNeeded(config.baseUrl, apiKey, config.model, true);
-      if (!compacted) {
+      const compacted = await this.compactIfNeeded(config.baseUrl, apiKey, config.model, true, abort.signal);
+      if (!compacted && !abort.signal.aborted) {
         this.note('Nothing to compact', 'The conversation is still short — automatic compaction kicks in when it grows long.');
       }
     } finally {
       this.compacting = false;
+      this.currentAbort = null;
       // 放行压缩期间排进队列的发言（SendQueue 在等这个信号）
       const waiters = this.compactWaiters;
       this.compactWaiters = [];

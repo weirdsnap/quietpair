@@ -16,6 +16,7 @@ import { getApiKey, promptForApiKey, getConfig, languageDirective, learningMode 
 import { chatCompletion } from './core/llm';
 import { deepenPrompt, DeepenKind } from './agent/prompts';
 import { Telemetry } from './core/telemetry';
+import { memoryStore } from './memory/store';
 
 function formatSummary(items: Suggestion[]): string {
   return items
@@ -35,6 +36,14 @@ export function activate(context: vscode.ExtensionContext) {
   const annotations = new AnnotationManager();
   const activity = new ActivityTracker();
   chatProvider.onFileWrittenLive = (abs) => activity.markAgentWrite(abs);
+
+  // memory.md 是「人类可直接编辑」的共享文件：外部改动（手动编辑 / git 操作）必须让
+  // MemoryStore 的缓存失效，否则 system prompt 会一直注入旧记忆（P2-2）
+  const memoryWatcher = vscode.workspace.createFileSystemWatcher('**/.vs-agent/memory.md');
+  memoryWatcher.onDidChange(() => memoryStore.invalidate());
+  memoryWatcher.onDidCreate(() => memoryStore.invalidate());
+  memoryWatcher.onDidDelete(() => memoryStore.invalidate());
+  context.subscriptions.push(memoryWatcher);
 
   // 埋点快照的统一口径：masked = 学习模式且非 L3 的 fix 被藏起（与 chatView 卡片逻辑一致）
   const snapOpts = (s: Suggestion) => ({ masked: learningMode() && s.level !== 3 && !!s.fix, learningMode: learningMode() });

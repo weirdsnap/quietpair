@@ -8,7 +8,13 @@ const state = {
   workspaceRoot: '',
   config: {} as Record<string, unknown>,
   activeEditor: undefined as unknown,
+  warningResponse: undefined as string | undefined,
 };
+
+/** 注入 showWarningMessage 的应答（如 'Clear'）；undefined 表示用户取消 */
+export function setWarningResponse(response: string | undefined): void {
+  state.warningResponse = response;
+}
 
 /** 设置当前工作区根目录（workspaceFolders[0]） */
 export function setWorkspaceRoot(dir: string): void {
@@ -57,6 +63,10 @@ export const window = {
       show() {},
       dispose() {},
     };
+  },
+  showWarningMessage(...args: unknown[]) {
+    void args;
+    return Promise.resolve(state.warningResponse);
   },
 };
 

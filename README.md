@@ -221,6 +221,7 @@ CI：`.github/workflows/ci.yml` 在 push/PR 时跑 compile + vitest（L0–L2）
 ## 参考文档
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：模块划分、数据流、设计决策
+- [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)：已知问题记录（场景 / 触发手段 / 根因 / 预计方案，按优先级分级）
 - [tests/README.md](tests/README.md)：测试四层结构（纯逻辑 / 桩集成 / 静态契约 / 真实宿主）与放置规则
 - [docs/USER_FLOW.md](docs/USER_FLOW.md)：用户流（mermaid 图）与用户故事
 - [VS Code Extension API](https://code.visualstudio.com/api)

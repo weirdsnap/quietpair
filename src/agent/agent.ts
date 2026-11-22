@@ -106,6 +106,16 @@ export async function runAgent(
 
     for (const group of groupToolCalls(toolCalls)) {
       if (deps.signal?.aborted) {
+        // 打断时给没轮到的 tool_calls 补占位响应——assistant 消息已带着全部 tool_calls
+        // 入了 history，缺 tool 响应的残缺结构会让下一轮请求被 API 整个拒绝
+        const answered = new Set(
+          history.filter((m) => m.role === 'tool').map((m) => m.tool_call_id)
+        );
+        for (const tc of toolCalls) {
+          if (!answered.has(tc.id)) {
+            history.push({ role: 'tool', tool_call_id: tc.id, content: '[interrupted by user — tool not executed]' });
+          }
+        }
         events.onAborted();
         return;
       }

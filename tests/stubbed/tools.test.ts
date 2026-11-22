@@ -36,6 +36,9 @@ describe('isReadonlyCommand：放行', () => {
   const yes = [
     'ls', 'ls -la src/', 'cat hello.ts', 'grep -rn foo .', 'rg TODO', 'find . -name "*.ts"',
     'git status', 'git log --oneline -5', 'git diff HEAD', 'git branch', 'git remote', 'git remote -v',
+    // branch/tag 的纯列举形式（默认写命令，只放行列举）
+    'git branch -v', 'git branch -vv', 'git branch -a', 'git branch -r', 'git branch --show-current',
+    'git branch --list', 'git branch --list "feat/*"', 'git tag', 'git tag -l', 'git tag --list "v1.*"', 'git tag -n',
     'wc -l *.ts', 'tree -L 2', 'pwd', 'echo hello',
     // 管道 / 链式组合（每段都白名单）
     'cat hello.ts | grep export', 'ls src | grep ts | wc -l', 'git log --oneline | head -5',
@@ -60,6 +63,9 @@ describe('isReadonlyCommand：拒绝', () => {
     'sort -o out.txt in.txt', 'sort --output=out.txt in.txt', 'find . -delete', 'find . -exec rm {} ;',
     'find . -fprintf out.txt %p', 'git log --output=/tmp/x', 'git diff --output=/tmp/x',
     'git remote update', 'git remote add origin x', 'git branch -D f', 'git branch -m a b', 'git push',
+    // branch/tag 是默认写的命令：不带 flag 的创建操作也必须拦（黑名单式拦不住，回归 P1-2）
+    'git branch foo', 'git branch --move a b', 'git branch --copy a b',
+    'git tag v1.0', 'git tag -a v1.0', 'git tag -a v1.0 -m release', 'git tag -d v1.0', 'git tag -f v1.0',
     'sed -i s/a/b/ f', 'npm test',
     // 引号内的 | 误切 → 误拒（安全方向）
     'grep "a|b" hello.ts',

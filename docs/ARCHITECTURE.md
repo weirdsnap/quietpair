@@ -3,6 +3,7 @@
 QuietPair 是一个「结对编程伙伴」插件：守望模式实时感知用户编码并主动建议，聊天 Agent 负责对话与执行。两边共享一份项目记忆和上下文。
 
 > 交互层的用户流（时序图/流程图）见 [USER_FLOW.md](USER_FLOW.md)；本文档聚焦模块与数据流。两份文档连同 README 在每次行为变更时一起更新。
+> 已知 bug 与待修缝隙见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)（含场景、触发手段、预计方案，修复后从清单移除）。
 
 ## 模块图
 
@@ -36,7 +37,9 @@ src/
 │
 ├── agent/                  聊天 Agent
 │   ├── agent.ts            runAgent 工具循环；循环只认通用事件（token/工具/完成/打断），
-│   │                       业务能力经 ToolContext 传入；连续纯读工具并发执行（groupToolCalls 分组）
+│   │                       业务能力经 ToolContext 传入；连续纯读工具并发执行（groupToolCalls 分组）；
+│   │                       打断时为未执行的 tool_calls 补占位 tool 响应（保 history 结构完整，
+│   │                       否则下一轮请求被 API 整个拒绝）
 │   ├── prompts.ts          所有面向模型的 prompt：SYSTEM_PROMPT（伙伴人设）+ COMPANION_PROMPT（守望分析）
 │   │                       + INIT/GUIDE_PROMPT（init 两个剧本：帮我总结 / 带我读一遍）
 │   │                       + LEARNING_POSTURE（学习姿态，learningMode 开启时追加到聊天 system prompt）
@@ -71,7 +74,8 @@ src/
 │                           注入分析 prompt；Agent 自己的写入被排除
 │
 ├── memory/                 记忆层
-│   ├── store.ts            项目记忆 .vs-agent/memory.md（注入 system prompt，AI 可写）
+│   ├── store.ts            项目记忆 .vs-agent/memory.md（注入 system prompt，AI 可写，人类可直接编辑——
+│   │                       装配层挂 FileSystemWatcher，外部改动即 invalidate 缓存）
 │   ├── detect.ts           主动记忆指令检测（纯函数，零 LLM）：关键词分级（禁区>决策>偏好），
 │   │                       命中发轻卡，用户点 Remember it 才落盘——先攒准确率数据
 │   └── sharedContext.ts    守望建议栈 → 注入聊天 prompt（「刚才那个建议」；同文件重分析
@@ -184,7 +188,7 @@ onDidSaveTextDocument
 - **上下文按需取证，而非固定注入**：守望分析固定只带当前文件 + 项目记忆 + 本地活动轨迹（零 token），是否需要看其他文件由模型自己决定（只读工具，≤3 轮）——对齐「跟 tab 补全拉开差距」的定位：判断基于项目全局视野，但不浪费 token
 - **分层观测**：第一层活动缓冲区（本地，零成本，连续）→ 第二层保存分诊（轻量模型，保存时判断值不值得叫醒，输出仅 YES/NO）→ 第三层深度分析（主模型，低频 300s 冷却，带着活动轨迹开口）。便宜层替昂贵层站岗，深度层只在有价值的时刻被叫醒
 - **SecretStorage 存 key**：settings.json 明文且会同步，密钥不落配置文件
-- **危险操作必审批**：write_file / run_command 弹 Approve/Reject，拒绝结果反馈给模型；审批/记忆/分析回调都经 ToolContext 由装配层注入，上下文缺哪个能力，对应工具直接拒绝执行（默认安全）。权限三档（`vsAgent.permissionMode`）：`discuss` 只讨论（写工具全禁，连弹窗都不出）/ `ask`（默认，逐次审批）/ `yolo`（预授权自动通过，逐笔记 transcript）。run_command 例外：白名单内的只读命令免审批直跑——复合命令按 `|` `;` `&&` `||` 切段逐段过白名单，重定向/命令替换/后台执行整条拒，参数路径限工作区内（绝对路径/`~`/`..` 一律拒），find/git/sort 的写参数（`-delete`/`--output`/`sort -o` 等）单独拉黑；可用 `vsAgent.autoRunReadonlyCommands` 关闭。定位是「减少弹窗的便利层」，不是安全边界
+- **危险操作必审批**：write_file / run_command 弹 Approve/Reject，拒绝结果反馈给模型；审批/记忆/分析回调都经 ToolContext 由装配层注入，上下文缺哪个能力，对应工具直接拒绝执行（默认安全）。权限三档（`vsAgent.permissionMode`）：`discuss` 只讨论（写工具全禁，连弹窗都不出）/ `ask`（默认，逐次审批）/ `yolo`（预授权自动通过，逐笔记 transcript）。run_command 例外：白名单内的只读命令免审批直跑——复合命令按 `|` `;` `&&` `||` 切段逐段过白名单，重定向/命令替换/后台执行整条拒，参数路径限工作区内（绝对路径/`~`/`..` 一律拒），find/git/sort 的写参数（`-delete`/`--output`/`sort -o` 等）单独拉黑；`git branch`/`git tag` 是默认写的命令，改用白名单式——只放行裸列举与纯列举 flag（`-l`/`-v`/`--show-current` 等），创建/删除/移动一律升级审批；可用 `vsAgent.autoRunReadonlyCommands` 关闭。定位是「减少弹窗的便利层」，不是安全边界
 - **存在即打断**：不做意图分类，用户发消息 = 打断当前任务
 
 ## 长期方向（占位，未实现）

@@ -128,7 +128,29 @@ const READONLY_GIT_SUBCOMMANDS = new Set([
 ]);
 // 命令自带的「看似只读其实会写」参数
 const FIND_WRITE_FLAGS = ['-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprintf', '-fls'];
-const GIT_WRITE_TOKENS = ['-d', '-D', '--delete', '--force', '-f', '-m', '-M', '-c', '-C'];
+// branch/tag 是「默认写」的命令（git branch foo / git tag v1.0 不带任何 flag 就是创建），
+// 黑名单式拦不住——只能用白名单式：放行列举 flag，其余一律升级审批。
+// 注意两个命令的 flag 含义不同（如 -a 在 branch 是 --all 列举、在 tag 是 --annotate 创建），分开定义。
+const GIT_BRANCH_LIST_FLAGS = new Set(['-l', '--list', '-v', '-vv', '--verbose', '-a', '--all', '-r', '--remotes', '--show-current']);
+const GIT_TAG_LIST_FLAGS = new Set(['-l', '--list', '-v', '--verbose']);
+// git tag -n / -n1 / -n99：带注解行数的列举形式
+const TAG_N_FLAG = /^-n\d*$/;
+
+// branch/tag 参数是否全是纯列举形式：flag 必须在白名单里；
+// 裸词（pattern）只在列举模式下允许（git branch foo 是创建，git branch --list foo 才是过滤）
+function isGitListOnly(args: string[], listFlags: Set<string>): boolean {
+  const isListFlag = (t: string) => listFlags.has(t) || TAG_N_FLAG.test(t);
+  const hasListMode = args.some(isListFlag);
+  return args.every((t) => {
+    if (isListFlag(t)) {
+      return true;
+    }
+    if (t.startsWith('-')) {
+      return false; // 不在白名单的 flag：可能是写参数，升级审批
+    }
+    return hasListMode;
+  });
+}
 
 // 参数 token 是否指向工作区外：绝对路径、~、..，以及 --opt=/abs 这种等号连写形式
 function isOutsideWorkspaceToken(t: string): boolean {
@@ -170,8 +192,11 @@ function isSimpleReadonlySegment(seg: string): boolean {
       // 只允许裸 `git remote` 和 `git remote -v`（add/remove/update 都会改仓库）
       return tokens.length === 2 || (tokens.length === 3 && ['-v', '--verbose'].includes(tokens[2]));
     }
-    if (['branch', 'tag'].includes(sub)) {
-      return !tokens.some((t) => GIT_WRITE_TOKENS.includes(t));
+    if (sub === 'branch') {
+      return isGitListOnly(tokens.slice(2), GIT_BRANCH_LIST_FLAGS);
+    }
+    if (sub === 'tag') {
+      return isGitListOnly(tokens.slice(2), GIT_TAG_LIST_FLAGS);
     }
   }
   return true;
