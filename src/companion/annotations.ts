@@ -122,6 +122,17 @@ export class AnnotationManager implements vscode.Disposable {
     return this.suggestions.get(uriStr)?.[index];
   }
 
+  // 纯移动编辑后锚在新位置命中：标注跟到证据当前所在行，别钉在旧行号上（P2-3）
+  relocate(uriStr: string, index: number, newLine: number): void {
+    const s = this.suggestions.get(uriStr)?.[index];
+    if (!s || s.line === newLine) {
+      return;
+    }
+    s.line = newLine;
+    this.refresh(vscode.Uri.parse(uriStr));
+    this.changeEmitter.fire();
+  }
+
   private refresh(uri: vscode.Uri): void {
     const key = uri.toString();
     const items = this.suggestions.get(key) ?? [];

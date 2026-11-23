@@ -6,18 +6,6 @@
 
 ---
 
-## 🟡 P2-3　确认修复找到锚的新位置后，编辑器标注不随行
-
-**场景**：建议锚定的代码被用户**原样移动**到同文件其他位置（比如把函数挪到文件底部），点 Fixed 后判定正确（锚匹配成功，报「修复已确认」），但编辑器里的红色波浪线/标注仍钉在旧行号上——视觉上指着无关代码，要等下一次分析才刷新。
-
-**触发手段**：对一条有行号的建议，把它指向的代码块整体剪切粘贴到同文件另一处（内容不变），点 Fixed → 判定对，但波浪线位置是旧的。
-
-**根因**：锚一期落地时（见 [design/suggestion-identity.md](design/suggestion-identity.md)），`confirmFix` 找到锚的新位置只用于判定结论，**没有回写 annotations 的行号**。标注的刷新完全依赖下一轮分析。
-
-**预计方案**：两条路径——① 轻量修补：confirmFix 找到锚新位置时回调更新 annotations 对应条目的行号；② 根治：二期「SharedContext 身份键换锚」落地时，标注位置天然跟随身份。倾向先在二期设计里记为已知项，若用户反馈频繁再做 ①。
-
----
-
 ## ⚪ P3-1　init 选项卡挂着时按 ■ 打断无效
 
 **场景**：init 流程弹出「How would you like to start?」选项卡、且当前没有 Agent 运行在跑时，用户按 ■ Stop 想取消——没有任何反应，只能点选项卡上的选项才能继续。
@@ -68,3 +56,9 @@
 - **原问题**：`MemoryStore.invalidate()` 无调用方，外部编辑后 system prompt 一直注入旧记忆。
 - **修复**：`extension.ts` 挂 FileSystemWatcher（`**/.vs-agent/memory.md` 的 change/create/delete → invalidate）。
 - **门禁**：`tests/stubbed/store.test.ts` —— 缓存命中 / invalidate 后读到新内容 / write 刷新缓存。
+
+### 2026-11-23　P2-3 确认修复后标注钉旧行号
+- **原问题**：纯移动编辑（代码块原样挪位置）后点 Fixed，untouched 分支判定正确但不重跑分析，波浪线/CodeLens 钉在旧行号。
+- **修复**：锚搜索的唯一命中位置随身带出（ConfirmResult.untouched 带 anchorSpanStarts）；纯判定函数 `unambiguousAnchorLine`（唯一命中且行号变了才迁移，多义/无行号不动）；extension untouched 分支调 `annotations.relocate` 回写行号并刷新。reviewed 分支无需处理（新分析整体刷新标注）。
+- **门禁**：`tests/unit/anchor.test.ts` 5 条迁移判定用例。
+- **已知余项**：SharedContext 里建议条目的行号同样会旧，影响 markViewed 匹配——随二期「身份键换锚」一并根治（见 design/suggestion-identity.md）。

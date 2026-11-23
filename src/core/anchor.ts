@@ -125,3 +125,15 @@ export function buildAnchor(quote: string | undefined, line: number | undefined,
   }
   return undefined;
 }
+
+/**
+ * 标注迁移判定（P2-3）：纯移动编辑后，锚搜索命中的位置才是证据当前所在行。
+ * 只有「唯一命中 + 与原行号不同」才迁移——多处命中是多义（钉错了比不钉更糟），
+ * 没有行号的建议不凭空补位置（不制造新的波浪线）。
+ */
+export function unambiguousAnchorLine(currentLine: number | undefined, spanStarts: number[] | undefined): number | undefined {
+  if (currentLine === undefined || !spanStarts || spanStarts.length !== 1) {
+    return undefined;
+  }
+  return spanStarts[0] !== currentLine ? spanStarts[0] : undefined;
+}

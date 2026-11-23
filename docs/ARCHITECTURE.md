@@ -69,7 +69,8 @@ src/
 │   │                       learningMode 开启时追加 LEARNING_COMPANION（L1/L2 留白、L3 豁免）
 │   ├── triage.ts           保存分诊「速记员」（分层观测第二层）：保存时用极小调用
 │   │                       判断值不值得叫醒深度分析（30s 限频，可用便宜的 triageModel）
-│   ├── annotations.ts      建议画到编辑器：分级波浪线 / 悬停详情（含 reflect）/ CodeLens / 问题面板
+│   ├── annotations.ts      建议画到编辑器：分级波浪线 / 悬停详情（含 reflect）/ CodeLens / 问题面板；
+│   │                       纯移动编辑后经 relocate 跟到锚的当前行（标注随证据走，不钉坐标）
 │   └── activity.ts         活动缓冲区（分层观测第一层）：本地记录编辑/浏览轨迹，
 │                           注入分析 prompt；Agent 自己的写入被排除
 │

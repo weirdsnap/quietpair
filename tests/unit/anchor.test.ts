@@ -3,7 +3,7 @@
  * 方法学：等价类（exact/normalized/不出现/多处出现）+ 边界值（首行/末行/越界行号/空 quote）。
  */
 import { describe, it, expect } from 'vitest';
-import { findQuote, extractQuoteAroundLine, buildAnchor, countQuoteLines, normalizeLines } from '../../src/core/anchor';
+import { findQuote, extractQuoteAroundLine, buildAnchor, countQuoteLines, normalizeLines, unambiguousAnchorLine } from '../../src/core/anchor';
 
 const CODE = [
   'function add(a, b) {', // 1
@@ -120,5 +120,28 @@ describe('countQuoteLines / normalizeLines', () => {
   it('归一化幂等：normalize(normalize(x)) === normalize(x)', () => {
     const once = normalizeLines('  a \n\tb\t ');
     expect(normalizeLines(once.join('\n'))).toEqual(once);
+  });
+});
+
+describe('unambiguousAnchorLine：标注迁移判定（P2-3）', () => {
+  it('唯一命中且行号变了 → 迁移到新行', () => {
+    expect(unambiguousAnchorLine(10, [42])).toBe(42);
+  });
+
+  it('唯一命中但行号没变 → 不迁移（undefined）', () => {
+    expect(unambiguousAnchorLine(42, [42])).toBeUndefined();
+  });
+
+  it('多处命中 → 多义，不迁移（钉错了比不钉更糟）', () => {
+    expect(unambiguousAnchorLine(10, [42, 87])).toBeUndefined();
+  });
+
+  it('没有命中信息 → 不迁移', () => {
+    expect(unambiguousAnchorLine(10, undefined)).toBeUndefined();
+    expect(unambiguousAnchorLine(10, [])).toBeUndefined();
+  });
+
+  it('建议本来就没行号 → 不补（保守：不凭空制造波浪线）', () => {
+    expect(unambiguousAnchorLine(undefined, [42])).toBeUndefined();
   });
 });

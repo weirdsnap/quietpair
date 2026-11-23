@@ -14,6 +14,7 @@ import { Logger } from './core/logger';
 import { UsageTracker } from './core/usage';
 import { getApiKey, promptForApiKey, getConfig, languageDirective, learningMode } from './core/config';
 import { chatCompletion } from './core/llm';
+import { unambiguousAnchorLine } from './core/anchor';
 import { deepenPrompt, DeepenKind } from './agent/prompts';
 import { Telemetry } from './core/telemetry';
 import { memoryStore } from './memory/store';
@@ -321,6 +322,12 @@ export function activate(context: vscode.ExtensionContext) {
         // 内容锚确定性判定：这条建议的「证据代码」片段在当前内容里原样还在，
         // 且相关文件（import 图）也没动过。如实告知但不进 adopted/rejected——
         // 判定只保证「证据代码没变 + 相关范围零改动」，不保证问题依赖图之外的远端修复
+        // 纯移动编辑：证据还在但位置变了——标注跟到证据当前所在行，别钉在旧行号上（P2-3）
+        const newLine = unambiguousAnchorLine(s.line, result.anchorSpanStarts);
+        if (newLine !== undefined) {
+          logger.event('lifecycle', { summary: `annotation relocated: line ${s.line} → ${newLine} (${s.title})` });
+          annotations.relocate(uriStr, index, newLine);
+        }
         logger.event('lifecycle', { summary: `confirm untouched (evidence intact, related untouched): ${s.title}` });
         chatProvider.note(
           '🎯 Your edit did not touch the evidence',

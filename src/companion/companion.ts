@@ -47,7 +47,7 @@ export interface CompanionCallbacks {
 export type ConfirmResult =
   | { status: 'busy' }
   | { status: 'unchanged' }
-  | { status: 'untouched' }
+  | { status: 'untouched'; anchorSpanStarts?: number[] } // 锚的新位置随身带：纯移动编辑时标注要跟过去（P2-3）
   | { status: 'reviewed'; suggestions: Suggestion[]; anchorFound?: boolean; anchorSpanStarts?: number[] };
 
 export class Companion implements vscode.Disposable {
@@ -400,7 +400,7 @@ export class Companion implements vscode.Disposable {
         return { status: 'unchanged' };
       }
       if (gate === 'untouched') {
-        return { status: 'untouched' };
+        return { status: 'untouched', anchorSpanStarts };
       }
       const editedHint =
         otherEdited.length > 0
