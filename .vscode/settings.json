@@ -2,5 +2,9 @@
   // F5 调试时关闭 js-debug 的网络监视：Node inspector 处理流式响应（SSE/chunked）
   // 会抛 "Missing dataLength in event"（Node 已知 bug），重时把扩展宿主打成 SIGABRT。
   // 我们的 LLM 调用全是流式 fetch，开着它 F5 开发宿主会随机闪退。
-  "debug.javascript.enableNetworkView": false
+  "debug.javascript.enableNetworkView": false,
+  // 编辑器钉死用工作区的 TS（5.9.3），不用 VS Code 自带版本：
+  // 自带的 6.0.3 不再自动加载 node_modules/@types，AbortSignal 等满屏误报；
+  // CI/终端都用 package.json 钉的 5.x，编辑器必须同版本才不会出现「编译绿但标红」。
+  "typescript.tsdk": "node_modules/typescript/lib"
 }

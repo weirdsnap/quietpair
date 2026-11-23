@@ -8,7 +8,10 @@
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // 显式声明环境类型白名单（TS 6.0 起 types 默认改为 [] 不再全量加载 @types，
+    // 提前对齐；5.x 下行为不变，编辑器被钉在 5.9.3，见 .vscode/settings.json）
+    "types": ["node", "vscode", "mocha"]
   },
   "include": ["src"],
   "exclude": ["node_modules", ".vscode-test"]
