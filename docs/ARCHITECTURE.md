@@ -15,8 +15,10 @@ src/
 │   ├── config.ts           设置项读取（vsAgent.*）+ API key（SecretStorage 优先）+ 输出语言指令
 │   │                       （vsAgent.responseLanguage，注入聊天与守望的 system prompt）
 │   │                       + 学习模式开关（vsAgent.learningMode）
-│   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析、reasoning_content 思考流捕获、
-│   │                       tool_calls 累积、AbortSignal、usage 回收
+│   ├── llm.ts              OpenAI 兼容流式客户端：SSE 解析三层拆分（parseSseLine 纯行解析 /
+│   │                       applyChunk 逐块语义累积，状态显式装在 SseAccumulator / 主循环只管
+│   │                       读-解码-切行-冲尾）、reasoning_content 思考流捕获、tool_calls 用
+│   │                       Map 按 index 累积（缺省归并末槽，无 -1 下标）、AbortSignal、usage 回收
 │   ├── lineDiff.ts         行级 diff（公共前后缀夹逼，零依赖）：未变区逐行精确为真，
 │   │                       支撑复审 prompt 的变更集线索（改了哪几行直接告诉模型）
 │   ├── anchor.ts           内容片段锚（纯函数，suggestion-identity 一期）：双档匹配

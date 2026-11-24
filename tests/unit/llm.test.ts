@@ -62,3 +62,70 @@ describe('chatCompletion：SSE 解析', () => {
     expect(result.toolCalls).toEqual([{ id: 'call_1', name: 'read_file', arguments: '{"path":"a"}' }]);
   });
 });
+
+// ---- 重构提纯的纯函数（parseSseLine / applyChunk）与两个边界回归 ----
+
+import { parseSseLine, applyChunk, SseAccumulator } from '../../src/core/llm';
+
+function freshAcc(): SseAccumulator {
+  return { content: '', reasoning: '', toolCalls: new Map() };
+}
+
+describe('parseSseLine：行 → 载荷', () => {
+  it('data 行返回 JSON 载荷', () => {
+    expect(parseSseLine('data: {"a":1}')).toBe('{"a":1}');
+    expect(parseSseLine('data:   {"a":1}  ')).toBe('{"a":1}');
+  });
+
+  it('[DONE] 与非 data 行返回 null', () => {
+    expect(parseSseLine('data: [DONE]')).toBeNull();
+    expect(parseSseLine('')).toBeNull();
+    expect(parseSseLine('event: message')).toBeNull();
+    expect(parseSseLine(': comment')).toBeNull();
+  });
+});
+
+describe('applyChunk：增量累积', () => {
+  it('首个 tool_calls delta 缺 index → 进 0 号槽（-1 bug 回归）', () => {
+    const acc = freshAcc();
+    applyChunk({ choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'read_file', arguments: '{}' } }] } }] }, acc, {});
+    expect([...acc.toolCalls.values()]).toEqual([{ id: 'call_1', name: 'read_file', arguments: '{}' }]);
+  });
+
+  it('缺 index 的后续 delta 归并到当前最后一个槽位', () => {
+    const acc = freshAcc();
+    applyChunk({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'a', arguments: '{"x' } }] } }] }, acc, {});
+    applyChunk({ choices: [{ delta: { tool_calls: [{ function: { arguments: '":1}' } }] } }] }, acc, {});
+    expect([...acc.toolCalls.values()]).toEqual([{ id: 'c1', name: 'a', arguments: '{"x":1}' }]);
+  });
+
+  it('usage chunk 不带 delta 时只记 usage 不崩', () => {
+    const acc = freshAcc();
+    applyChunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }, acc, {});
+    expect(acc.usage?.totalTokens).toBe(3);
+    expect(acc.content).toBe('');
+  });
+});
+
+describe('chatCompletion：流收尾边界', () => {
+  it('末尾无换行的 data 行不丢（decoder/buffer 双重冲尾）', async () => {
+    const text = 'data: {"choices":[{"delta":{"content":"尾"}}]}\n\n' +
+      'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}'; // 无结尾换行
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode(text)); c.close(); },
+    }), { status: 200 })));
+    const result = await chatCompletion(baseOpts);
+    expect(result.content).toBe('尾');
+    expect(result.usage?.totalTokens).toBe(2);
+  });
+
+  it('缺 index 的 tool_calls 端到端不丢调用（-1 bug 回归）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      sseResponse([
+        { choices: [{ delta: { tool_calls: [{ id: 'call_9', function: { name: 'list_files', arguments: '{}' } }] } }] },
+      ])
+    ));
+    const result = await chatCompletion(baseOpts);
+    expect(result.toolCalls).toEqual([{ id: 'call_9', name: 'list_files', arguments: '{}' }]);
+  });
+});

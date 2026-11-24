@@ -79,15 +79,17 @@ describe('findQuote（内容锚）不变量', () => {
         const lines = text.split('\n');
         const start = startRaw % lines.length;
         const quote = lines.slice(start, start + len).join('\n');
+        // start+len 越过文件尾时 slice 实际返回的行数小于 len——窗口宽度必须按 quote 的真实行数取
+        const qLen = quote.split('\n').length;
         // 合法 quote 的非退化形态：整体非空白，且首尾行非空行
         //（findQuote 按设计剥掉头尾空白行——「模型多带一行空行」场景由 anchor.test.ts 的单测专门钉死）
-        fc.pre(quote.trim().length > 0 && lines[start].trim().length > 0 && lines[Math.min(start + len, lines.length) - 1].trim().length > 0);
+        fc.pre(quote.trim().length > 0 && lines[start].trim().length > 0 && lines[start + qLen - 1].trim().length > 0);
         const m = findQuote(text, quote);
         if (!m) {
           return false; // 从内容里切出来的 quote 必须能找到
         }
         for (const line of m.lines) {
-          const window = lines.slice(line - 1, line - 1 + len);
+          const window = lines.slice(line - 1, line - 1 + qLen);
           if (m.tier === 'exact') {
             if (window.join('\n') !== quote) {
               return false;
